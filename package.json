@@ -34,16 +34,11 @@
     },
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] }
+        { "target": "squirrel", "arch": ["x64"] }
       ]
     },
-    "nsis": {
-      "oneClick": true,
-      "perMachine": false,
-      "deleteAppDataOnUninstall": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "Framework"
+    "squirrelWindows": {
+      "iconUrl": "https://github.com/felixj0nes/framework-desktop/raw/main/build/icon.png"
     },
     "publish": {
       "provider": "github",

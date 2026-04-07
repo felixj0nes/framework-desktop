@@ -2,6 +2,18 @@ const { app, BrowserWindow, shell, Menu } = require('electron')
 const path = require('path')
 const fs = require('fs')
 
+// ─── Squirrel startup events (Windows installer lifecycle) ────────────────────
+// Must be handled before anything else — quit immediately on install/update/uninstall
+if (process.platform === 'win32') {
+  const squirrelCommand = process.argv[1]
+  if (squirrelCommand === '--squirrel-install' ||
+      squirrelCommand === '--squirrel-updated' ||
+      squirrelCommand === '--squirrel-uninstall' ||
+      squirrelCommand === '--squirrel-obsolete') {
+    app.quit()
+  }
+}
+
 // ─── Config ───────────────────────────────────────────────────────────────────
 const APP_URL  = 'https://framework.club'
 const APP_NAME = 'Framework'
