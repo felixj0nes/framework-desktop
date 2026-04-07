@@ -48,7 +48,11 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Framework"
     },
-    "publish": null
+    "publish": {
+      "provider": "github",
+      "owner": "felixj0nes",
+      "repo": "framework-desktop"
+    }
   },
   "devDependencies": {
     "electron": "^32.0.0",
