@@ -30,11 +30,7 @@
     },
     "dmg": {
       "title": "Framework",
-      "window": { "width": 540, "height": 380 },
-      "contents": [
-        { "x": 150, "y": 185, "type": "file" },
-        { "x": 390, "y": 185, "type": "link", "path": "/Applications" }
-      ]
+      "background": null
     },
     "win": {
       "target": [
