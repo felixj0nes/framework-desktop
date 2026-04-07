@@ -6,6 +6,9 @@ on:
       - 'v*'          # triggers on version tags: v1.0.0, v1.1.0, etc.
   workflow_dispatch:  # allows manual trigger from GitHub Actions UI
 
+permissions:
+  contents: write   # required to create GitHub Releases and upload assets
+
 jobs:
   build-mac:
     runs-on: macos-latest
@@ -14,10 +17,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm install
+          cache: 'npm'
+      - run: npm ci
       - run: npm run build:mac
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false   # skip code signing — no cert configured
 
   build-win:
     runs-on: windows-latest
@@ -26,7 +31,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm install
+          cache: 'npm'
+      - run: npm ci
       - run: npm run build:win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
