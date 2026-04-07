@@ -5,6 +5,22 @@ const fs = require('fs')
 // ─── Config ───────────────────────────────────────────────────────────────────
 const APP_URL  = 'https://framework.club'
 const APP_NAME = 'Framework'
+const PROTOCOL = 'framework'
+
+// ─── Single instance lock ─────────────────────────────────────────────────────
+// Ensures only one app window exists. When a second launch is triggered (e.g.
+// by the OS routing a framework:// URL on Windows), the first instance handles it.
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) { app.quit() }
+
+// ─── Custom protocol ──────────────────────────────────────────────────────────
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [path.resolve(process.argv[1])])
+  }
+} else {
+  app.setAsDefaultProtocolClient(PROTOCOL)
+}
 
 // ─── Window state ─────────────────────────────────────────────────────────────
 const STATE_FILE = path.join(app.getPath('userData'), 'window-state.json')
@@ -16,7 +32,6 @@ function loadState() {
 
 function saveState(win) {
   if (win.isMaximized() || win.isMinimized()) {
-    // Only persist maximized flag, keep last bounds
     try {
       const prev = loadState()
       fs.writeFileSync(STATE_FILE, JSON.stringify({ ...prev, maximized: win.isMaximized() }))
@@ -29,8 +44,29 @@ function saveState(win) {
   } catch {}
 }
 
+// ─── Auth callback ────────────────────────────────────────────────────────────
+// Handles framework://auth?at=ACCESS_TOKEN&rt=REFRESH_TOKEN
+// Sent by framework.club/login after successful login with ?desktop=1
+function handleAuthCallback(url) {
+  try {
+    const parsed = new URL(url)
+    if (parsed.hostname !== 'auth') return
+    const at = parsed.searchParams.get('at')
+    const rt = parsed.searchParams.get('rt')
+    if (!at || !rt || !mainWindow) return
+    // Load the desktop-auth page which sets the Supabase session then goes to /portal
+    const target = `${APP_URL}/portal/desktop-auth?at=${encodeURIComponent(at)}&rt=${encodeURIComponent(rt)}`
+    mainWindow.loadURL(target)
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+  } catch (e) {
+    console.error('Auth callback error:', e)
+  }
+}
+
 // ─── Main window ──────────────────────────────────────────────────────────────
 let mainWindow
+let browserLoginOpened = false
 
 function createWindow() {
   const state = loadState()
@@ -46,35 +82,50 @@ function createWindow() {
     title:     APP_NAME,
     icon:      path.join(__dirname, 'build', 'icon.png'),
     backgroundColor: '#FFFFFF',
-    show: false, // avoids white flash on startup
+    show: false,
     webPreferences: {
       preload:          path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration:  false,
       sandbox:          true,
     },
-    // Mac: native traffic lights inset into the window
     titleBarStyle: isMac ? 'hiddenInset' : 'default',
   })
 
-  // Show once the page is ready to avoid blank frame
   mainWindow.once('ready-to-show', () => {
     if (state.maximized) mainWindow.maximize()
     mainWindow.show()
   })
 
-  mainWindow.loadURL(APP_URL)
+  // Start at the portal — middleware will redirect to /login if not authenticated
+  mainWindow.loadURL(`${APP_URL}/portal`)
 
-  // Keep navigation inside the app domain; open everything else in the browser
+  // When the app lands on the login page, open the browser for the desktop auth flow.
+  // The user logs in via their browser; the site then redirects back via deep link.
+  mainWindow.webContents.on('did-navigate', (_event, url) => {
+    const loginUrl = `${APP_URL}/login`
+    if (url.startsWith(loginUrl) && !url.includes('desktop=1') && !browserLoginOpened) {
+      browserLoginOpened = true
+      shell.openExternal(`${loginUrl}?desktop=1`)
+      // Show a holding page in the app while we wait for the browser login
+      mainWindow.loadURL(`${APP_URL}/login?desktop=1&waiting=1`)
+    }
+    // Reset flag once back in the portal (e.g. after sign-out)
+    if (url.startsWith(`${APP_URL}/portal`) && !url.includes('desktop-auth')) {
+      browserLoginOpened = false
+    }
+  })
+
+  // Open external links in the default browser, not in-app
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith(APP_URL)) return { action: 'allow' }
     shell.openExternal(url)
     return { action: 'deny' }
   })
 
-  mainWindow.webContents.on('will-navigate', (event, url) => {
+  mainWindow.webContents.on('will-navigate', (_event, url) => {
     if (!url.startsWith(APP_URL)) {
-      event.preventDefault()
+      _event.preventDefault()
       shell.openExternal(url)
     }
   })
@@ -85,9 +136,7 @@ function createWindow() {
 // ─── App menu ─────────────────────────────────────────────────────────────────
 function buildMenu() {
   const isMac = process.platform === 'darwin'
-
   const template = [
-    // Mac: app menu
     ...(isMac ? [{
       label: APP_NAME,
       submenu: [
@@ -103,42 +152,26 @@ function buildMenu() {
     {
       label: 'Edit',
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
-        { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' },
+        { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
+        { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' },
       ],
     },
     {
       label: 'View',
       submenu: [
-        { role: 'reload' },
-        { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        { type: 'separator' },
-        { role: 'togglefullscreen' },
+        { role: 'reload' }, { type: 'separator' },
+        { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' },
+        { type: 'separator' }, { role: 'togglefullscreen' },
       ],
     },
     {
       label: 'Window',
       submenu: [
-        { role: 'minimize' },
-        { role: 'zoom' },
-        ...(isMac ? [
-          { type: 'separator' },
-          { role: 'front' },
-        ] : [
-          { role: 'close' },
-        ]),
+        { role: 'minimize' }, { role: 'zoom' },
+        ...(isMac ? [{ type: 'separator' }, { role: 'front' }] : [{ role: 'close' }]),
       ],
     },
   ]
-
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
@@ -146,11 +179,25 @@ function buildMenu() {
 app.whenReady().then(() => {
   buildMenu()
   createWindow()
-
-  // Mac: re-create window when dock icon is clicked and no windows are open
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+// Windows: deep link arrives as a command-line arg in second-instance
+app.on('second-instance', (_event, commandLine) => {
+  const url = commandLine.find(arg => arg.startsWith(`${PROTOCOL}://`))
+  if (url) handleAuthCallback(url)
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+  }
+})
+
+// Mac: deep link arrives via open-url event
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  handleAuthCallback(url)
 })
 
 app.on('window-all-closed', () => {
