@@ -101,7 +101,17 @@ function createWindow() {
       nodeIntegration:  false,
       sandbox:          true,
     },
-    titleBarStyle: isMac ? 'hiddenInset' : 'default',
+    // Hide the native title bar on both platforms.
+    // Windows: titleBarOverlay keeps the snap/resize controls but removes the title strip.
+    // Mac: hiddenInset keeps traffic lights inset into the page.
+    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
+    ...(isMac ? {} : {
+      titleBarOverlay: {
+        color:       '#F9FAFB', // matches --surface (sidebar bg)
+        symbolColor: '#1F2937', // matches --dark
+        height:      40,
+      },
+    }),
   })
 
   mainWindow.once('ready-to-show', () => {
