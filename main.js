@@ -136,19 +136,25 @@ function createWindow() {
 // ─── App menu ─────────────────────────────────────────────────────────────────
 function buildMenu() {
   const isMac = process.platform === 'darwin'
-  const template = [
-    ...(isMac ? [{
+
+  // Windows: no visible menu bar — clean shell appearance
+  if (!isMac) {
+    Menu.setApplicationMenu(null)
+    return
+  }
+
+  // Mac: minimal menu required by the OS (menu bar is always visible)
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {
       label: APP_NAME,
       submenu: [
         { role: 'about' },
         { type: 'separator' },
-        { role: 'hide' },
-        { role: 'hideOthers' },
-        { role: 'unhide' },
+        { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' },
         { type: 'separator' },
         { role: 'quit' },
       ],
-    }] : []),
+    },
     {
       label: 'Edit',
       submenu: [
@@ -168,11 +174,10 @@ function buildMenu() {
       label: 'Window',
       submenu: [
         { role: 'minimize' }, { role: 'zoom' },
-        ...(isMac ? [{ type: 'separator' }, { role: 'front' }] : [{ role: 'close' }]),
+        { type: 'separator' }, { role: 'front' },
       ],
     },
-  ]
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+  ]))
 }
 
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
