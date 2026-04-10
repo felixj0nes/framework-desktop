@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="760" viewBox="0 0 1080 760">
+  <!-- Background: --surface #F9FAFB -->
+  <rect width="1080" height="760" fill="#F9FAFB"/>
+
+  <!-- Watermark logomark — centred, 15% opacity -->
+  <!-- Bar 1: full width, ink colour -->
+  <rect x="430" y="290" width="220" height="14" rx="5" fill="#111827" opacity="0.08"/>
+  <!-- Bar 2: 60% width, blue -->
+  <rect x="430" y="318" width="132" height="14" rx="5" fill="#3B82F6" opacity="0.08"/>
+  <!-- Bar 3: 78% width, border grey -->
+  <rect x="430" y="346" width="172" height="14" rx="5" fill="#E5E7EB" opacity="0.12"/>
+
+  <!-- "Framework" wordmark watermark below the bars -->
+  <text
+    x="540"
+    y="410"
+    font-family="Inter, -apple-system, BlinkMacSystemFont, sans-serif"
+    font-size="22"
+    font-weight="500"
+    fill="#111827"
+    opacity="0.1"
+    text-anchor="middle"
+    letter-spacing="-0.5"
+  >Framework</text>
+</svg>

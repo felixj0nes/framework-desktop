@@ -7,9 +7,10 @@
   "private": true,
   "scripts": {
     "start": "electron .",
+    "generate-assets": "node build/generate-assets.js",
     "build:win": "electron-builder --win",
-    "build:mac": "electron-builder --mac",
-    "build:all": "electron-builder --win --mac"
+    "build:mac": "node build/generate-assets.js && electron-builder --mac",
+    "build:all": "node build/generate-assets.js && electron-builder --win --mac"
   },
   "build": {
     "appId": "com.framework.app",
@@ -19,10 +20,15 @@
     "files": [
       "main.js",
       "preload.js",
-      "build/**"
+      "build/**",
+      "package.json"
     ],
+    "extraMetadata": {
+      "main": "main.js"
+    },
     "mac": {
       "category": "public.app-category.finance",
+      "icon": "build/icon.icns",
       "target": [
         { "target": "dmg", "arch": ["x64", "arm64"] }
       ],
@@ -30,21 +36,46 @@
     },
     "dmg": {
       "title": "Framework",
-      "background": null
+      "background": "build/dmg-background.png",
+      "window": {
+        "width": 540,
+        "height": 380
+      },
+      "contents": [
+        { "x": 150, "y": 185, "type": "file" },
+        { "x": 390, "y": 185, "type": "link", "path": "/Applications" }
+      ],
+      "iconSize": 100
     },
     "win": {
+      "icon": "build/icon.ico",
       "target": [
-        { "target": "squirrel", "arch": ["x64"] }
+        { "target": "nsis", "arch": ["x64"] }
       ]
     },
-    "squirrelWindows": {
-      "iconUrl": "https://github.com/felixj0nes/framework-desktop/raw/main/build/icon.png"
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "allowElevation": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Framework",
+      "displayLanguageSelector": false,
+      "license": null
     },
     "publish": {
       "provider": "github",
       "owner": "felixj0nes",
-      "repo": "framework-desktop"
+      "repo": "framework-desktop",
+      "releaseType": "release"
     }
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.0"
   },
   "devDependencies": {
     "electron": "^32.0.0",
