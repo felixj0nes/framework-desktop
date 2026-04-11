@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!--
+    Framework logomark — three horizontal bars, no background, transparent.
+    Canvas: 1024×1024px  |  20% side padding, ~33% top/bottom padding
+    Bar area: 614×352px centred at (512, 512)
+    Bar 1: full width (614px)  #111827  Ink
+    Bar 2: 58% width  (356px)  #3B82F6  Blue
+    Bar 3: 78% width  (479px)  #9CA3AF  Muted
+  -->
+  <rect x="205" y="336" width="614" height="80" rx="8" fill="#111827"/>
+  <rect x="205" y="472" width="356" height="80" rx="8" fill="#3B82F6"/>
+  <rect x="205" y="608" width="479" height="80" rx="8" fill="#9CA3AF"/>
+</svg>

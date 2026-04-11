@@ -34,7 +34,7 @@ jobs:
 
       - name: Verify required build assets
         run: |
-          for f in build/icon.png build/splash.html build/update.html build/dmg-background.svg; do
+          for f in build/icon-source.svg build/splash.html build/update.html build/dmg-background.svg; do
             if [ ! -f "$f" ]; then echo "Missing required asset: $f" && exit 1; fi
           done
           echo "All required assets present"
@@ -75,7 +75,7 @@ jobs:
       - name: Verify required build assets
         shell: bash
         run: |
-          for f in build/icon.png build/splash.html build/update.html; do
+          for f in build/icon-source.svg build/splash.html build/update.html; do
             if [ ! -f "$f" ]; then echo "Missing required asset: $f" && exit 1; fi
           done
           echo "All required assets present"

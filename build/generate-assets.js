@@ -2,17 +2,19 @@
  * generate-assets.js
  *
  * Generates build assets that cannot be checked in as binary files:
- *   - build/dmg-background.png  (540×380 @2x = 1080×760px)
- *   - build/icon.ico             (multi-size from build/icon.png — Windows)
- *   - build/icon.icns            (multi-size from build/icon.png — macOS)
+ *   - build/dmg-background.png       (1080×760px — macOS DMG background)
+ *   - build/icons/icon.png           (512×512, transparent — Linux / fallback)
+ *   - build/icons/icon.ico           (multi-size, transparent — Windows)
+ *   - build/icons/icon.icns          (multi-size, transparent — macOS; macOS CI only)
+ *   - build/installer-header.bmp     (150×57px — NSIS installer header)
+ *   - build/installer-sidebar.bmp    (164×314px — NSIS installer sidebar)
+ *
+ * Source: build/icon-source.svg — 1024×1024 transparent SVG logomark.
  *
  * Run before building:  node build/generate-assets.js
  *
  * Requirements:
- *   npm install sharp  (run once: npm install --save-dev sharp)
- *
- * Code signing assets (icon.ico, icon.icns) require the script below — or
- * you can use an online converter and drop the files into build/ manually.
+ *   npm install --save-dev sharp png-to-ico
  */
 
 const path = require('path')
@@ -106,12 +108,17 @@ async function run() {
   }
 
   const buildDir = path.join(__dirname)
-  const srcIcon = path.join(buildDir, 'icon.png')
 
-  if (!fs.existsSync(srcIcon)) {
-    console.error('build/icon.png not found')
+  // ── Icon source: transparent SVG ────────────────────────────────────────────
+  const iconSrc = path.join(buildDir, 'icon-source.svg')
+  if (!fs.existsSync(iconSrc)) {
+    console.error('build/icon-source.svg not found')
     process.exit(1)
   }
+  const iconSvg = fs.readFileSync(iconSrc)
+
+  const iconsDir = path.join(buildDir, 'icons')
+  if (!fs.existsSync(iconsDir)) fs.mkdirSync(iconsDir, { recursive: true })
 
   // ── DMG background (1080×760 @2x for Retina — electron-builder uses this size) ──
   const dmgBgSvg = fs.readFileSync(path.join(buildDir, 'dmg-background.svg'))
@@ -121,49 +128,61 @@ async function run() {
     .toFile(path.join(buildDir, 'dmg-background.png'))
   console.log('✓ dmg-background.png generated (1080×760)')
 
-  // ── icon.ico (Windows — 16, 32, 48, 64, 128, 256) ──
+  // ── icons/icon.png (512×512 — transparent, Linux / general fallback) ──
+  await sharp(iconSvg)
+    .resize(512, 512)
+    .png({ compressionLevel: 9 })
+    .toFile(path.join(iconsDir, 'icon.png'))
+  console.log('✓ icons/icon.png generated (512×512, transparent)')
+
+  // Verify alpha channel is present
+  const iconMeta = await sharp(path.join(iconsDir, 'icon.png')).metadata()
+  if (!iconMeta.hasAlpha) {
+    console.error('ERROR: icons/icon.png does not have an alpha channel — transparency missing')
+    process.exit(1)
+  }
+  console.log('✓ Transparency verified: icons/icon.png has alpha channel')
+
+  // ── icons/icon.ico (Windows — 16, 32, 48, 64, 128, 256 — all transparent) ──
   const icoSizes = [16, 32, 48, 64, 128, 256]
   const icoPngPaths = []
   for (const size of icoSizes) {
-    const dest = path.join(buildDir, `icon-${size}.png`)
-    await sharp(srcIcon).resize(size, size).png().toFile(dest)
+    const dest = path.join(iconsDir, `icon-${size}.png`)
+    await sharp(iconSvg).resize(size, size).png({ compressionLevel: 9 }).toFile(dest)
     icoPngPaths.push(dest)
   }
   try {
     const pngToIcoMod = require('png-to-ico')
     const pngToIco = pngToIcoMod.default || pngToIcoMod.imagesToIco || pngToIcoMod
     const icoBuffer = await pngToIco(icoPngPaths)
-    fs.writeFileSync(path.join(buildDir, 'icon.ico'), icoBuffer)
-    console.log('✓ icon.ico generated (16, 32, 48, 64, 128, 256px)')
-  } catch {
-    console.warn('  icon.ico — skipped (png-to-ico not available). Run: npm install --save-dev png-to-ico')
+    fs.writeFileSync(path.join(iconsDir, 'icon.ico'), icoBuffer)
+    console.log('✓ icons/icon.ico generated (16, 32, 48, 64, 128, 256px, transparent)')
+  } catch (e) {
+    console.warn('  icons/icon.ico — skipped (png-to-ico not available):', e.message)
   }
   // Clean up intermediate PNGs
   for (const p of icoPngPaths) { try { fs.unlinkSync(p) } catch {} }
 
-  // ── icon.icns (macOS) ──
-  // iconutil (macOS only) is required for .icns.
-  // On CI (macos-latest runner) this script runs automatically.
+  // ── icons/icon.icns (macOS — requires iconutil) ──────────────────────────
   if (process.platform === 'darwin') {
     const { execSync } = require('child_process')
-    const iconsetDir = path.join(buildDir, 'icon.iconset')
+    const iconsetDir = path.join(iconsDir, 'icon.iconset')
     if (!fs.existsSync(iconsetDir)) fs.mkdirSync(iconsetDir)
 
     const icnsSizes = [16, 32, 64, 128, 256, 512, 1024]
     for (const size of icnsSizes) {
-      await sharp(srcIcon).resize(size, size).png()
+      await sharp(iconSvg).resize(size, size).png({ compressionLevel: 9 })
         .toFile(path.join(iconsetDir, `icon_${size}x${size}.png`))
-      // Retina (@2x) version
       if (size * 2 <= 1024) {
-        await sharp(srcIcon).resize(size * 2, size * 2).png()
+        await sharp(iconSvg).resize(size * 2, size * 2).png({ compressionLevel: 9 })
           .toFile(path.join(iconsetDir, `icon_${size}x${size}@2x.png`))
       }
     }
-    execSync(`iconutil -c icns "${iconsetDir}" -o "${path.join(buildDir, 'icon.icns')}"`)
+    execSync(`iconutil -c icns "${iconsetDir}" -o "${path.join(iconsDir, 'icon.icns')}"`)
     fs.rmSync(iconsetDir, { recursive: true })
-    console.log('✓ icon.icns generated')
+    console.log('✓ icons/icon.icns generated (transparent)')
   } else {
-    console.log('  icon.icns — skipped (requires macOS iconutil). Will be generated on macOS CI runner.')
+    console.log('  icons/icon.icns — skipped (requires macOS iconutil). Will be generated on macOS CI runner.')
   }
 
   // ── NSIS installer branding bitmaps ──────────────────────────────────

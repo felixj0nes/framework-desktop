@@ -16,7 +16,7 @@
     "appId": "com.framework.app",
     "productName": "Framework",
     "copyright": "Copyright © 2025 Framework. All rights reserved.",
-    "icon": "build/icon.png",
+    "icon": "build/icons/icon",
     "artifactName": "${productName}-${version}.${ext}",
     "afterSign": "build/notarize.js",
     "files": [
@@ -30,7 +30,7 @@
     },
     "mac": {
       "category": "public.app-category.finance",
-      "icon": "build/icon.icns",
+      "icon": "build/icons/icon.icns",
       "target": [
         { "target": "dmg", "arch": ["arm64"] }
       ],
@@ -48,7 +48,7 @@
       "iconSize": 100
     },
     "win": {
-      "icon": "build/icon.ico",
+      "icon": "build/icons/icon.ico",
       "target": [
         { "target": "nsis", "arch": ["x64"] }
       ]
@@ -59,8 +59,8 @@
       "allowToChangeInstallationDirectory": false,
       "allowElevation": false,
       "include": "build/installer-include.nsi",
-      "installerIcon": "build/icon.ico",
-      "uninstallerIcon": "build/icon.ico",
+      "installerIcon": "build/icons/icon.ico",
+      "uninstallerIcon": "build/icons/icon.ico",
       "deleteAppDataOnUninstall": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,

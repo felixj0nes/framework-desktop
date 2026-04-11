@@ -20,6 +20,11 @@ const APP_NAME  = 'Framework'
 const PROTOCOL  = 'framework'
 const IS_PACKAGED = app.isPackaged
 
+// Platform-specific icon paths (transparent logomark, no container)
+const ICON_PNG  = path.join(__dirname, 'build', 'icons', 'icon.png')
+const ICON_ICO  = path.join(__dirname, 'build', 'icons', 'icon.ico')
+const ICON_ICNS = path.join(__dirname, 'build', 'icons', 'icon.icns')
+
 // ─── Auto-updater ─────────────────────────────────────────────────────────────
 // Only active in packaged builds — avoids spurious update checks during dev.
 let autoUpdater = null
@@ -364,7 +369,7 @@ function createWindow() {
     minWidth:  920,
     minHeight: 600,
     title:     APP_NAME,
-    icon:      path.join(__dirname, 'build', 'icon.png'),
+    icon:      process.platform === 'win32' ? ICON_ICO : ICON_PNG,
     // Surface colour prevents white flash between Electron chrome and web app background
     backgroundColor: '#F9FAFB',
     show: false,
@@ -409,6 +414,13 @@ function createWindow() {
       })
     }, remaining)
   })
+
+  // Explicit icon assignment — ensures correct transparent icon in taskbar / Dock
+  if (process.platform === 'win32' && fs.existsSync(ICON_ICO)) {
+    mainWindow.setIcon(ICON_ICO)
+  } else if (process.platform === 'darwin' && fs.existsSync(ICON_ICNS)) {
+    app.dock.setIcon(ICON_ICNS)
+  }
 
   mainWindow.loadURL(`${APP_URL}/portal`)
 
@@ -663,7 +675,7 @@ function showTrayMinimiseTooltip() {
     const n = new Notification({
       title:  'Framework is still running',
       body:   'Framework is minimised to the system tray. Click the tray icon to reopen.',
-      icon:   path.join(__dirname, 'build', 'icon.png'),
+      icon:   ICON_PNG,
       silent: true,
     })
     n.show()
@@ -673,9 +685,8 @@ function showTrayMinimiseTooltip() {
 function createTray() {
   try {
     let trayIcon
-    const iconPath = path.join(__dirname, 'build', 'icon.png')
-    if (fs.existsSync(iconPath)) {
-      trayIcon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 })
+    if (fs.existsSync(ICON_PNG)) {
+      trayIcon = nativeImage.createFromPath(ICON_PNG).resize({ width: 16, height: 16 })
     } else {
       trayIcon = nativeImage.createEmpty()
     }
@@ -764,7 +775,7 @@ async function checkLiveSchedule() {
           const n = new Notification({
             title: 'Framework — Live session starting',
             body:  `AM session starts in ${minutesAway} minute${minutesAway === 1 ? '' : 's'}. 0800–1100 EST.`,
-            icon:  path.join(__dirname, 'build', 'icon.png'),
+            icon:  ICON_PNG,
             silent: false,
           })
           n.on('click', () => {
@@ -786,7 +797,7 @@ async function checkLiveSchedule() {
         const n = new Notification({
           title: 'Framework — Session starting now',
           body:  `AM session starts in ${minutesAway} minute${minutesAway === 1 ? '' : 's'}. Open Framework to join.`,
-          icon:  path.join(__dirname, 'build', 'icon.png'),
+          icon:  ICON_PNG,
           silent: false,
         })
         n.on('click', () => {
