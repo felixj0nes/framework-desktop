@@ -378,8 +378,8 @@ function createWindow() {
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
     ...(isMac ? {} : {
       titleBarOverlay: {
-        color:       '#111827',
-        symbolColor: '#FFFFFF',
+        color:       '#F9FAFB',
+        symbolColor: '#111827',
         height:      40,
       },
     }),

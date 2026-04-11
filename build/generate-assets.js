@@ -58,7 +58,7 @@ function writeBMP(width, height, pixels) {
 // Renders the Framework logomark onto a pixel array at position (ox, oy).
 // markSize: outer square size in pixels.
 function renderLogomark(pixels, width, ox, oy, markSize) {
-  const tint   = { r: 0xDB, g: 0xBE, b: 0xFE }  // DBEAFE
+  const tint   = { r: 0xDB, g: 0xEA, b: 0xFE }  // DBEAFE
   const ink    = { r: 0x11, g: 0x18, b: 0x27 }  // 111827
   const blue   = { r: 0x3B, g: 0x82, b: 0xF6 }  // 3B82F6
   const bdr    = { r: 0xE5, g: 0xE7, b: 0xEB }  // E5E7EB
@@ -167,14 +167,28 @@ async function run() {
   }
 
   // ── NSIS installer branding bitmaps ──────────────────────────────────
-  // installerHeaderBitmap: 150×57px — shown at top of each installer page
+  // Rendered from SVG via sharp so we get crisp text at correct pixel sizes.
+
+  // installerHeader: 150×57px — shown at top of each installer page
   {
     const W = 150, H = 57
-    const bg = { r: 0xF9, g: 0xFA, b: 0xFB }
-    const pixels = new Array(W * H).fill(null).map(() => ({ ...bg }))
-    const markSize = 33
-    const ox = 12, oy = Math.round((H - markSize) / 2)
-    renderLogomark(pixels, W, ox, oy, markSize)
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+      <rect width="${W}" height="${H}" fill="#F9FAFB"/>
+      <!-- Logomark: 33×33 centred vertically, left-aligned with 12px margin -->
+      <rect x="12" y="12" width="33" height="33" rx="6" fill="#DBEAFE"/>
+      <rect x="20" y="20" width="17" height="3" rx="1" fill="#111827"/>
+      <rect x="20" y="27" width="10" height="3" rx="1" fill="#3B82F6"/>
+      <rect x="20" y="34" width="13" height="3" rx="1" fill="#E5E7EB"/>
+    </svg>`
+    const { data, info } = await sharp(Buffer.from(svg))
+      .resize(W, H)
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+    const pixels = []
+    for (let i = 0; i < info.width * info.height; i++) {
+      pixels.push({ r: data[i * 3], g: data[i * 3 + 1], b: data[i * 3 + 2] })
+    }
     fs.writeFileSync(path.join(buildDir, 'installer-header.bmp'), writeBMP(W, H, pixels))
     console.log('✓ installer-header.bmp generated (150×57)')
   }
@@ -182,12 +196,27 @@ async function run() {
   // installerSidebar: 164×314px — shown on Welcome and Finish pages
   {
     const W = 164, H = 314
-    const bg = { r: 0xF9, g: 0xFA, b: 0xFB }
-    const pixels = new Array(W * H).fill(null).map(() => ({ ...bg }))
-    const markSize = 60
-    const ox = Math.round((W - markSize) / 2)
-    const oy = Math.round(H * 0.28)
-    renderLogomark(pixels, W, ox, oy, markSize)
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+      <rect width="${W}" height="${H}" fill="#F9FAFB"/>
+      <!-- Logomark: 60×60 centred horizontally at 28% from top -->
+      <rect x="52" y="88" width="60" height="60" rx="10" fill="#DBEAFE"/>
+      <rect x="65" y="101" width="34" height="5" rx="2" fill="#111827"/>
+      <rect x="65" y="111" width="20" height="5" rx="2" fill="#3B82F6"/>
+      <rect x="65" y="121" width="26" height="5" rx="2" fill="#E5E7EB"/>
+      <!-- Wordmark -->
+      <text x="82" y="178" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="bold" fill="#111827" text-anchor="middle" letter-spacing="-0.3">Framework</text>
+      <!-- Tagline -->
+      <text x="82" y="198" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#9CA3AF" text-anchor="middle">The system behind the trade.</text>
+    </svg>`
+    const { data, info } = await sharp(Buffer.from(svg))
+      .resize(W, H)
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+    const pixels = []
+    for (let i = 0; i < info.width * info.height; i++) {
+      pixels.push({ r: data[i * 3], g: data[i * 3 + 1], b: data[i * 3 + 2] })
+    }
     fs.writeFileSync(path.join(buildDir, 'installer-sidebar.bmp'), writeBMP(W, H, pixels))
     console.log('✓ installer-sidebar.bmp generated (164×314)')
   }
