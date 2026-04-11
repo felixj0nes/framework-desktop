@@ -49,6 +49,22 @@ if (process.defaultApp) {
   app.setAsDefaultProtocolClient(PROTOCOL)
 }
 
+// ─── Settings persistence ─────────────────────────────────────────────────────
+const SETTINGS_FILE = path.join(app.getPath('userData'), 'settings.json')
+let sessionReminderEnabled = true  // default on
+
+function loadSettings() {
+  try {
+    const s = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'))
+    if (typeof s.sessionReminder === 'boolean') sessionReminderEnabled = s.sessionReminder
+  } catch {}
+}
+
+function saveSettings() {
+  try { fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ sessionReminder: sessionReminderEnabled })) }
+  catch {}
+}
+
 // ─── Window state persistence ─────────────────────────────────────────────────
 const STATE_FILE = path.join(app.getPath('userData'), 'window-state.json')
 
@@ -307,8 +323,8 @@ function createWindow() {
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
     ...(isMac ? {} : {
       titleBarOverlay: {
-        color:       '#F9FAFB',
-        symbolColor: '#1F2937',
+        color:       '#111827',
+        symbolColor: '#FFFFFF',
         height:      40,
       },
     }),
@@ -540,6 +556,29 @@ function setupIPC() {
     resetStallTimer()
     autoUpdater.downloadUpdate().catch(handleUpdateError)
   })
+
+  // Window controls — used by custom renderer title bar
+  ipcMain.handle('win:minimize', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize()
+  })
+  ipcMain.handle('win:toggle-maximize', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    if (mainWindow.isMaximized()) mainWindow.unmaximize()
+    else mainWindow.maximize()
+  })
+  ipcMain.handle('win:close', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close()
+  })
+  ipcMain.handle('win:is-maximized', () => {
+    return mainWindow ? mainWindow.isMaximized() : false
+  })
+
+  // Session reminder toggle — renderer sends this when user changes the setting
+  ipcMain.on('session:reminder', (_e, enabled) => {
+    if (typeof enabled !== 'boolean') return
+    sessionReminderEnabled = enabled
+    saveSettings()
+  })
 }
 
 // ─── System tray ──────────────────────────────────────────────────────────────
@@ -620,6 +659,7 @@ let liveSessionNotifiedToday   = false
 
 async function checkLiveSchedule() {
   if (liveSessionNotifiedToday) return
+  if (!sessionReminderEnabled) return
   try {
     const https = require('https')
     const fetchSchedule = () => new Promise((resolve, reject) => {
@@ -736,6 +776,7 @@ function buildMenu() {
 
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
+  loadSettings()
   buildMenu()
   setupIPC()
   setupAutoUpdater()

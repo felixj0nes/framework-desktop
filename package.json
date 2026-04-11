@@ -8,7 +8,7 @@
   "scripts": {
     "start": "electron .",
     "generate-assets": "node build/generate-assets.js",
-    "build:win": "electron-builder --win",
+    "build:win": "node build/generate-assets.js && electron-builder --win",
     "build:mac": "node build/generate-assets.js && electron-builder --mac",
     "build:all": "node build/generate-assets.js && electron-builder --win --mac"
   },
@@ -65,7 +65,9 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Framework",
       "displayLanguageSelector": false,
-      "license": null
+      "license": null,
+      "installerHeaderBitmap": "build/installer-header.bmp",
+      "installerSidebar": "build/installer-sidebar.bmp"
     },
     "publish": {
       "provider": "github",
