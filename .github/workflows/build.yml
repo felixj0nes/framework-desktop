@@ -8,7 +8,7 @@ name: Build installers
 #   macOS:   add APPLE_IDENTITY, APPLE_ID, APPLE_ID_PASSWORD, APPLE_TEAM_ID
 #            to repository secrets. Notarisation runs automatically via
 #            build/notarize.js once credentials are present.
-#   See: Settings → Secrets → Actions → New repository secret
+#   See: Settings -> Secrets -> Actions -> New repository secret
 
 on:
   push:
@@ -32,9 +32,6 @@ jobs:
 
       - run: npm ci
 
-      - name: Install sharp for asset generation
-        run: npm install --no-save sharp
-
       - name: Verify required build assets
         run: |
           for f in build/icon.png build/splash.html build/update.html build/dmg-background.svg; do
@@ -42,18 +39,14 @@ jobs:
           done
           echo "All required assets present"
 
-      - name: Generate build assets (DMG background, icon.icns)
-        run: npm run generate-assets
-
-      - name: Build Mac DMG (x64 + arm64)
+      - name: Build Mac DMG (generates assets + packages)
         # Artifact produced: Framework-{version}.dmg (set by artifactName in package.json)
         # To activate code signing and notarisation, add APPLE_IDENTITY, APPLE_ID,
         # APPLE_ID_PASSWORD, and APPLE_TEAM_ID to repository secrets.
-        run: electron-builder --mac
+        run: npm run build:mac
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_IDENTITY: ${{ secrets.APPLE_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -89,13 +82,10 @@ jobs:
 
       - name: Build Windows NSIS installer
         # Artifact produced: Framework-{version}.exe (set by artifactName in package.json)
-        # To activate code signing, add WIN_CERT_PATH and WIN_CERT_PASSWORD to
-        # repository secrets. electron-builder skips signing if env vars are absent.
+        # Signing is skipped automatically when WIN_CERT_PATH is not set.
         run: npm run build:win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          WIN_CERT_PATH: ${{ secrets.WIN_CERT_PATH }}
-          WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD }}
 
       - name: Verify Windows build output
         shell: bash

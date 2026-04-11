@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1080" height="760" viewBox="0 0 1080 760">
-  <!-- Background: --surface #F9FAFB -->
+  <!-- Background: surface #F9FAFB -->
   <rect width="1080" height="760" fill="#F9FAFB"/>
 
-  <!-- Watermark logomark — centred, 15% opacity on all bars -->
+  <!-- Watermark logomark, centred, 15% opacity on all bars -->
   <g opacity="0.15">
     <!-- Bar 1: full width, ink colour -->
     <rect x="430" y="290" width="220" height="14" rx="5" fill="#111827"/>

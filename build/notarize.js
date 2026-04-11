@@ -16,8 +16,6 @@
  * On local builds or Windows, it exits immediately without doing anything.
  */
 
-const { notarize } = require('@electron/notarize')
-
 exports.default = async function notarizing(context) {
   const { electronPlatformName, appOutDir } = context
 
@@ -28,6 +26,14 @@ exports.default = async function notarizing(context) {
   if (!process.env.APPLE_ID || !process.env.APPLE_ID_PASSWORD || !process.env.APPLE_TEAM_ID) {
     console.log('[notarize] Skipping — APPLE_ID / APPLE_ID_PASSWORD / APPLE_TEAM_ID not set.')
     console.log('[notarize] Add these as GitHub Actions secrets to enable notarisation.')
+    return
+  }
+
+  let notarize
+  try {
+    notarize = require('@electron/notarize').notarize
+  } catch {
+    console.log('[notarize] Skipping — @electron/notarize not installed.')
     return
   }
 

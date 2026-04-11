@@ -1,6 +1,6 @@
 {
   "name": "framework",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "The system behind the trade.",
   "author": "Framework",
   "main": "main.js",
@@ -35,15 +35,12 @@
         { "target": "dmg", "arch": ["x64", "arm64"] }
       ],
       "darkModeSupport": true,
-      "identity": "${env.APPLE_IDENTITY}"
+      "identity": null
     },
     "dmg": {
       "title": "Framework",
       "background": "build/dmg-background.png",
-      "window": {
-        "width": 540,
-        "height": 380
-      },
+      "window": { "width": 540, "height": 380 },
       "contents": [
         { "x": 150, "y": 185, "type": "file" },
         { "x": 390, "y": 185, "type": "link", "path": "/Applications" }
@@ -54,9 +51,7 @@
       "icon": "build/icon.ico",
       "target": [
         { "target": "nsis", "arch": ["x64"] }
-      ],
-      "certificateFile": "${env.WIN_CERT_PATH}",
-      "certificatePassword": "${env.WIN_CERT_PASSWORD}"
+      ]
     },
     "nsis": {
       "oneClick": false,
@@ -70,10 +65,8 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Framework",
       "displayLanguageSelector": false,
-      "license": null,
-      "installerHeaderBitmap": "build/installer-header.bmp",
-      "installerSidebar": "build/installer-sidebar.bmp",
-      "script": "build/installer.nsi"
+      "installerHeader": "build/installer-header.bmp",
+      "installerSidebar": "build/installer-sidebar.bmp"
     },
     "publish": {
       "provider": "github",
@@ -87,6 +80,8 @@
   },
   "devDependencies": {
     "electron": "^32.0.0",
-    "electron-builder": "^25.0.0"
+    "electron-builder": "^25.0.0",
+    "png-to-ico": "^3.0.1",
+    "sharp": "^0.34.5"
   }
 }

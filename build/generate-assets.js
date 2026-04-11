@@ -122,23 +122,24 @@ async function run() {
   console.log('✓ dmg-background.png generated (1080×760)')
 
   // ── icon.ico (Windows — 16, 32, 48, 64, 128, 256) ──
-  // sharp doesn't natively write .ico — generate PNGs at each size then
-  // use the ico package or an online tool. We write the largest PNG as a
-  // fallback; electron-builder will use icon.png if icon.ico is absent.
   const icoSizes = [16, 32, 48, 64, 128, 256]
-  const icoFrames = []
+  const icoPngPaths = []
   for (const size of icoSizes) {
-    const buf = await sharp(srcIcon).resize(size, size).png().toBuffer()
-    icoFrames.push({ size, buf })
-    // Also save individual PNGs for manual ICO assembly
-    await sharp(srcIcon)
-      .resize(size, size)
-      .png()
-      .toFile(path.join(buildDir, `icon-${size}.png`))
+    const dest = path.join(buildDir, `icon-${size}.png`)
+    await sharp(srcIcon).resize(size, size).png().toFile(dest)
+    icoPngPaths.push(dest)
   }
-  console.log('✓ icon PNG sizes generated (16–256px) — assemble into icon.ico manually or via ico-package')
-  console.log('  Tip: npm install --save-dev png-to-ico')
-  console.log('  Then: node -e "require(\'png-to-ico\')([...]).then(b => require(\'fs\').writeFileSync(\'build/icon.ico\', b))"')
+  try {
+    const pngToIcoMod = require('png-to-ico')
+    const pngToIco = pngToIcoMod.default || pngToIcoMod.imagesToIco || pngToIcoMod
+    const icoBuffer = await pngToIco(icoPngPaths)
+    fs.writeFileSync(path.join(buildDir, 'icon.ico'), icoBuffer)
+    console.log('✓ icon.ico generated (16, 32, 48, 64, 128, 256px)')
+  } catch {
+    console.warn('  icon.ico — skipped (png-to-ico not available). Run: npm install --save-dev png-to-ico')
+  }
+  // Clean up intermediate PNGs
+  for (const p of icoPngPaths) { try { fs.unlinkSync(p) } catch {} }
 
   // ── icon.icns (macOS) ──
   // iconutil (macOS only) is required for .icns.
