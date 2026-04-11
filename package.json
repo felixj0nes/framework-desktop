@@ -32,13 +32,12 @@
       "category": "public.app-category.finance",
       "icon": "build/icon.icns",
       "target": [
-        { "target": "dmg", "arch": ["x64", "arm64"] }
+        { "target": "dmg", "arch": ["arm64"] }
       ],
       "darkModeSupport": true,
       "identity": null
     },
     "dmg": {
-      "artifactName": "${productName}-${version}-${arch}.${ext}",
       "title": "Framework",
       "background": "build/dmg-background.png",
       "window": { "width": 540, "height": 380 },
