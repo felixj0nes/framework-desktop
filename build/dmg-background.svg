@@ -2,13 +2,15 @@
   <!-- Background: --surface #F9FAFB -->
   <rect width="1080" height="760" fill="#F9FAFB"/>
 
-  <!-- Watermark logomark — centred, 15% opacity -->
-  <!-- Bar 1: full width, ink colour -->
-  <rect x="430" y="290" width="220" height="14" rx="5" fill="#111827" opacity="0.08"/>
-  <!-- Bar 2: 60% width, blue -->
-  <rect x="430" y="318" width="132" height="14" rx="5" fill="#3B82F6" opacity="0.08"/>
-  <!-- Bar 3: 78% width, border grey -->
-  <rect x="430" y="346" width="172" height="14" rx="5" fill="#E5E7EB" opacity="0.12"/>
+  <!-- Watermark logomark — centred, 15% opacity on all bars -->
+  <g opacity="0.15">
+    <!-- Bar 1: full width, ink colour -->
+    <rect x="430" y="290" width="220" height="14" rx="5" fill="#111827"/>
+    <!-- Bar 2: 60% width (220 * 0.60 = 132), blue -->
+    <rect x="430" y="318" width="132" height="14" rx="5" fill="#3B82F6"/>
+    <!-- Bar 3: 78% width (220 * 0.78 = 172), border grey -->
+    <rect x="430" y="346" width="172" height="14" rx="5" fill="#E5E7EB"/>
+  </g>
 
   <!-- "Framework" wordmark watermark below the bars -->
   <text
@@ -18,7 +20,7 @@
     font-size="22"
     font-weight="500"
     fill="#111827"
-    opacity="0.1"
+    opacity="0.15"
     text-anchor="middle"
     letter-spacing="-0.5"
   >Framework</text>

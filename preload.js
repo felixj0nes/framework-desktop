@@ -25,18 +25,27 @@ contextBridge.exposeInMainWorld('electron', {
   // ── Session reminder preference ──────────────────────────────────────
   setSessionReminder: (enabled) => ipcRenderer.send('session:reminder', Boolean(enabled)),
 
-  // ── Auto-update events (renderer → main) ────────────────────────────
-  downloadUpdate: () => ipcRenderer.send('update-download'),
-  installUpdate:  () => ipcRenderer.send('update-install'),
-  dismissUpdate:  () => ipcRenderer.send('update-dismiss'),
+  // ── Auto-update control (renderer → main) ───────────────────────────
+  // Channels follow the namespace:action convention.
+  downloadUpdate: () => ipcRenderer.send('update:download'),
+  installUpdate:  () => ipcRenderer.send('update:install'),
+  dismissUpdate:  () => ipcRenderer.send('update:dismiss'),
 
   // ── Auto-update events (main → renderer) ────────────────────────────
-  onUpdateAvailable: (cb) => { ipcRenderer.on('update-available', (_e, info) => cb(info)) },
-  onUpdateProgress:  (cb) => { ipcRenderer.on('update-progress',  (_e, info) => cb(info)) },
-  onUpdateDownloaded:(cb) => { ipcRenderer.on('update-downloaded', (_e, info) => cb(info)) },
+  onUpdateAvailable:  (cb) => { ipcRenderer.on('update:available',  (_e, info) => cb(info)) },
+  onUpdateProgress:   (cb) => { ipcRenderer.on('update:progress',   (_e, info) => cb(info)) },
+  onUpdateDownloaded: (cb) => { ipcRenderer.on('update:downloaded', (_e, info) => cb(info)) },
   removeUpdateListeners: () => {
-    ipcRenderer.removeAllListeners('update-available')
-    ipcRenderer.removeAllListeners('update-progress')
-    ipcRenderer.removeAllListeners('update-downloaded')
+    ipcRenderer.removeAllListeners('update:available')
+    ipcRenderer.removeAllListeners('update:progress')
+    ipcRenderer.removeAllListeners('update:downloaded')
+  },
+
+  // ── Auth token secure storage (renderer ↔ main) ─────────────────────
+  // Used on session restore — renderer requests any persisted tokens
+  // so Supabase can be re-initialised without a full browser OAuth flow.
+  auth: {
+    getTokens:   () => ipcRenderer.invoke('auth:get-tokens'),
+    clearTokens: () => ipcRenderer.send('auth:clear-tokens'),
   },
 })

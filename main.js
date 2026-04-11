@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, Menu, Tray, Notification, nativeImage, ipcMain, globalShortcut } = require('electron')
+const { app, BrowserWindow, shell, Menu, Tray, Notification, nativeImage, ipcMain, globalShortcut, safeStorage } = require('electron')
 const path = require('path')
 const fs   = require('fs')
 
@@ -99,14 +99,49 @@ function logError(tag, message) {
   } catch {}
 }
 
+// ─── Token secure storage (safeStorage) ──────────────────────────────────────
+// Auth tokens received via the framework://auth deep link are encrypted using
+// the OS keychain (safeStorage) and stored locally. This removes tokens from
+// URL parameters entirely on subsequent session restores.
+const AUTH_FILE = path.join(app.getPath('userData'), 'auth.enc')
+
+function storeTokensSecurely(at, rt) {
+  if (!safeStorage.isEncryptionAvailable()) {
+    logError('[auth]', 'safeStorage not available — tokens not persisted')
+    return
+  }
+  try {
+    const payload   = JSON.stringify({ at, rt })
+    const encrypted = safeStorage.encryptString(payload)
+    fs.writeFileSync(AUTH_FILE, encrypted)
+  } catch (e) {
+    logError('[auth]', 'Failed to store tokens: ' + e.message)
+  }
+}
+
+function loadStoredTokens() {
+  if (!safeStorage.isEncryptionAvailable()) return null
+  try {
+    if (!fs.existsSync(AUTH_FILE)) return null
+    const encrypted = fs.readFileSync(AUTH_FILE)
+    const payload   = safeStorage.decryptString(encrypted)
+    return JSON.parse(payload)
+  } catch {
+    return null
+  }
+}
+
+function clearStoredTokens() {
+  try { if (fs.existsSync(AUTH_FILE)) fs.unlinkSync(AUTH_FILE) }
+  catch {}
+}
+
 // ─── Auth callback ────────────────────────────────────────────────────────────
 // Handles framework://auth?at=ACCESS_TOKEN&rt=REFRESH_TOKEN
 //
-// Security note: tokens are forwarded as URL query params to /portal/desktop-auth,
-// where they are consumed immediately by Supabase setSession() and not stored.
-// The desktop-auth page then redirects to /portal, clearing the tokens from the URL.
-// Recommended future improvement: use safeStorage to store a one-time token and
-// retrieve it via a secure IPC call, removing tokens from the URL entirely.
+// Tokens are extracted, stored securely via safeStorage, then forwarded to
+// /portal/desktop-auth where Supabase setSession() consumes them immediately.
+// The desktop-auth page then redirects to /portal, clearing the URL.
 function handleAuthCallback(url) {
   try {
     const parsed = new URL(url)
@@ -114,6 +149,11 @@ function handleAuthCallback(url) {
     const at = parsed.searchParams.get('at')
     const rt = parsed.searchParams.get('rt')
     if (!at || !rt || !mainWindow) return
+
+    // Persist tokens securely — so future app launches can restore the session
+    // without requiring the full browser OAuth flow again.
+    storeTokensSecurely(at, rt)
+
     const target = `${APP_URL}/portal/desktop-auth?at=${encodeURIComponent(at)}&rt=${encodeURIComponent(rt)}`
     mainWindow.loadURL(target)
     if (mainWindow.isMinimized()) mainWindow.restore()
@@ -199,11 +239,22 @@ function createSplash() {
   splashWindow.once('closed', () => { splashWindow = null })
 }
 
-function closeSplash() {
-  if (splashWindow && !splashWindow.isDestroyed()) {
-    splashWindow.close()
-    splashWindow = null
-  }
+// Fade out the splash over 220ms then close it, then call the optional callback.
+// Using executeJavaScript ensures the CSS transition runs in the renderer
+// before the window disappears — no hard cut.
+function closeSplash(cb) {
+  if (!splashWindow || splashWindow.isDestroyed()) { if (cb) cb(); return }
+  splashWindow.webContents.executeJavaScript(`
+    document.body.style.transition = 'opacity 0.2s ease';
+    document.body.style.opacity = '0';
+  `).catch(() => {})
+  setTimeout(() => {
+    if (splashWindow && !splashWindow.isDestroyed()) {
+      splashWindow.close()
+      splashWindow = null
+    }
+    if (cb) cb()
+  }, 220)
 }
 
 // ─── Update window ────────────────────────────────────────────────────────────
@@ -274,21 +325,25 @@ let downloadStallTimer  = null   // 30-second stall detector during download
 // Called when we know the update path is resolved (no update, timeout, error, skip).
 // If the main window is already ready, shows it immediately; otherwise waits for
 // ready-to-show.  Always enforces the SPLASH_MIN_MS minimum display time.
+// The main window is shown inside the closeSplash callback so it appears only
+// after the fade completes — no overlap between splash and main window.
 function proceedWhenReady() {
   closeUpdateWindow()
   proceedAllowed = true
 
   if (!mainWindowReady) return  // ready-to-show handler will pick this up
 
-  const elapsed    = Date.now() - splashShownAt
-  const remaining  = Math.max(0, SPLASH_MIN_MS - elapsed)
+  const elapsed   = Date.now() - splashShownAt
+  const remaining = Math.max(0, SPLASH_MIN_MS - elapsed)
   setTimeout(() => {
-    closeSplash()
-    if (!mainWindow || mainWindow.isDestroyed()) return
-    const state = loadState()
-    if (state.maximized) mainWindow.maximize()
-    mainWindow.show()
-    scheduleSessionCheck()
+    closeSplash(() => {
+      if (!mainWindow || mainWindow.isDestroyed()) return
+      const state = loadState()
+      if (state.maximized) mainWindow.maximize()
+      mainWindow.show()
+      if (IS_PACKAGED) mainWindow.webContents.closeDevTools()
+      scheduleSessionCheck()
+    })
   }, remaining)
 }
 
@@ -330,21 +385,28 @@ function createWindow() {
     }),
   })
 
+  // Ensure OS taskbar/Dock always displays "Framework" regardless of page title
+  mainWindow.setTitle(APP_NAME)
+
   // Show main window only when both:
   //  1. the update check has resolved (proceedAllowed = true)
   //  2. the renderer has finished loading (mainWindowReady = true)
   // and only after the splash has been shown for at least SPLASH_MIN_MS.
+  // The main window is shown inside the closeSplash callback — after the fade.
   mainWindow.once('ready-to-show', () => {
     mainWindowReady = true
     if (!proceedAllowed) return   // still waiting for update decision — proceedWhenReady() handles this
     const elapsed   = Date.now() - splashShownAt
     const remaining = Math.max(0, SPLASH_MIN_MS - elapsed)
     setTimeout(() => {
-      closeSplash()
-      const s = loadState()
-      if (s.maximized) mainWindow.maximize()
-      mainWindow.show()
-      scheduleSessionCheck()
+      closeSplash(() => {
+        if (!mainWindow || mainWindow.isDestroyed()) return
+        const s = loadState()
+        if (s.maximized) mainWindow.maximize()
+        mainWindow.show()
+        if (IS_PACKAGED) mainWindow.webContents.closeDevTools()
+        scheduleSessionCheck()
+      })
     }, remaining)
   })
 
@@ -579,6 +641,16 @@ function setupIPC() {
     sessionReminderEnabled = enabled
     saveSettings()
   })
+
+  // ── Auth token secure storage ──────────────────────────────────────────────
+  // Renderer can request stored tokens on session restore (e.g. after app relaunch)
+  ipcMain.handle('auth:get-tokens', () => {
+    return loadStoredTokens()
+  })
+  // Renderer signals logout — clear persisted tokens
+  ipcMain.on('auth:clear-tokens', () => {
+    clearStoredTokens()
+  })
 }
 
 // ─── System tray ──────────────────────────────────────────────────────────────
@@ -654,11 +726,11 @@ function updateTrayMenu(sessionInfo) {
 }
 
 // ─── Live session notifications ───────────────────────────────────────────────
-let sessionCheckTimer          = null
-let liveSessionNotifiedToday   = false
+let sessionCheckTimer            = null
+let liveSessionNotifiedToday     = false
+let liveSessionTwoMinNotifiedToday = false  // separate flag for the 2-minute warning
 
 async function checkLiveSchedule() {
-  if (liveSessionNotifiedToday) return
   if (!sessionReminderEnabled) return
   try {
     const https = require('https')
@@ -682,13 +754,38 @@ async function checkLiveSchedule() {
     if (data.session?.is_live) updateTrayMenu('Live now')
     else if (data.next_session)  updateTrayMenu(`${data.next_session} EST`)
 
-    // Fire notification if session starts within 15 minutes
-    if (data.next_session_ms && data.next_session_ms > 0 && data.next_session_ms <= 15 * 60 * 1000) {
+    // ── 15-minute warning ─────────────────────────────────────────────────
+    if (!liveSessionNotifiedToday && data.next_session_ms && data.next_session_ms > 0 && data.next_session_ms <= 15 * 60 * 1000) {
+      // Skip the 15-min notification if it's also within the 2-min window
+      // (the 2-min notification below will fire instead — more accurate)
+      if (data.next_session_ms > 3 * 60 * 1000) {
+        const minutesAway = Math.ceil(data.next_session_ms / 60000)
+        if (Notification.isSupported()) {
+          const n = new Notification({
+            title: 'Framework — Live session starting',
+            body:  `AM session starts in ${minutesAway} minute${minutesAway === 1 ? '' : 's'}. 0800–1100 EST.`,
+            icon:  path.join(__dirname, 'build', 'icon.png'),
+            silent: false,
+          })
+          n.on('click', () => {
+            if (mainWindow) {
+              mainWindow.show(); mainWindow.focus()
+              mainWindow.webContents.executeJavaScript('window.__fwNav && window.__fwNav("livestream")').catch(() => {})
+            }
+          })
+          n.show()
+          liveSessionNotifiedToday = true
+        }
+      }
+    }
+
+    // ── 2-minute warning (fires when 1–3 minutes remain) ──────────────────
+    if (!liveSessionTwoMinNotifiedToday && data.next_session_ms > 0 && data.next_session_ms <= 3 * 60 * 1000) {
       const minutesAway = Math.ceil(data.next_session_ms / 60000)
       if (Notification.isSupported()) {
         const n = new Notification({
-          title: 'Framework — Live session starting',
-          body:  `AM session starts in ${minutesAway} minute${minutesAway === 1 ? '' : 's'}. 0800–1100 EST.`,
+          title: 'Framework — Session starting now',
+          body:  `AM session starts in ${minutesAway} minute${minutesAway === 1 ? '' : 's'}. Open Framework to join.`,
           icon:  path.join(__dirname, 'build', 'icon.png'),
           silent: false,
         })
@@ -699,6 +796,8 @@ async function checkLiveSchedule() {
           }
         })
         n.show()
+        liveSessionTwoMinNotifiedToday = true
+        // Also mark the 15-min notification as sent to avoid double-firing
         liveSessionNotifiedToday = true
       }
     }
@@ -711,11 +810,12 @@ function scheduleSessionCheck() {
   checkLiveSchedule()
   sessionCheckTimer = setInterval(() => { checkLiveSchedule() }, 5 * 60 * 1000)
 
-  // Reset daily notification flag at midnight
+  // Reset daily notification flags at midnight
   const now = new Date()
   const msToMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime() - now.getTime()
   setTimeout(() => {
-    liveSessionNotifiedToday = false
+    liveSessionNotifiedToday       = false
+    liveSessionTwoMinNotifiedToday = false
     if (sessionCheckTimer) { clearInterval(sessionCheckTimer); sessionCheckTimer = null }
     scheduleSessionCheck()
   }, msToMidnight)

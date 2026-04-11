@@ -17,6 +17,8 @@
     "productName": "Framework",
     "copyright": "Copyright © 2025 Framework. All rights reserved.",
     "icon": "build/icon.png",
+    "artifactName": "${productName}-${version}.${ext}",
+    "afterSign": "build/notarize.js",
     "files": [
       "main.js",
       "preload.js",
@@ -32,7 +34,8 @@
       "target": [
         { "target": "dmg", "arch": ["x64", "arm64"] }
       ],
-      "darkModeSupport": true
+      "darkModeSupport": true,
+      "identity": "${env.APPLE_IDENTITY}"
     },
     "dmg": {
       "title": "Framework",
@@ -51,7 +54,9 @@
       "icon": "build/icon.ico",
       "target": [
         { "target": "nsis", "arch": ["x64"] }
-      ]
+      ],
+      "certificateFile": "${env.WIN_CERT_PATH}",
+      "certificatePassword": "${env.WIN_CERT_PASSWORD}"
     },
     "nsis": {
       "oneClick": false,
@@ -67,7 +72,8 @@
       "displayLanguageSelector": false,
       "license": null,
       "installerHeaderBitmap": "build/installer-header.bmp",
-      "installerSidebar": "build/installer-sidebar.bmp"
+      "installerSidebar": "build/installer-sidebar.bmp",
+      "script": "build/installer.nsi"
     },
     "publish": {
       "provider": "github",

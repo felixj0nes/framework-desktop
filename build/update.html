@@ -79,8 +79,11 @@
       flex-direction: column;
       align-items: center;
       width: 100%;
+      opacity: 0;
+      transition: opacity 0.18s ease;
     }
     .state.active { display: flex; }
+    .state.visible { opacity: 1; }
 
     .dots { display: flex; gap: 7px; align-items: center; margin-bottom: 11px; }
     .dot {
@@ -215,7 +218,7 @@
       font-family: inherit; cursor: pointer;
       transition: border-color 0.15s, background 0.15s;
     }
-    .btn-secondary:hover { border-color: #9CA3AF; background: #F3F4F6; }
+    .btn-secondary:hover { border-color: #9CA3AF; background: #F9FAFB; }
   </style>
 </head>
 <body>
@@ -302,9 +305,19 @@
     const skipBtn       = document.getElementById('skipBtn')
 
     // ── State machine ────────────────────────────────────────────────────
+    // Two-class approach: 'active' controls display:flex, 'visible' controls
+    // opacity — the rAF gap between them ensures the browser paints at opacity:0
+    // before transitioning to opacity:1, creating a smooth cross-fade.
     function showState(name) {
       Object.entries(states).forEach(([key, el]) => {
-        el.classList.toggle('active', key === name)
+        const isTarget = key === name
+        if (isTarget) {
+          el.classList.add('active')
+          requestAnimationFrame(() => { el.classList.add('visible') })
+        } else {
+          el.classList.remove('visible')
+          el.classList.remove('active')
+        }
       })
     }
 
