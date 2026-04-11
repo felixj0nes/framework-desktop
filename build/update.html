@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; img-src 'self' data:">
+  <title>Framework</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 440px;
+      height: 320px;
+      overflow: hidden;
+      background: #F9FAFB;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    .shell {
+      width: 440px;
+      height: 320px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: #F9FAFB;
+      -webkit-app-region: no-drag;
+      padding-top: 52px; /* positions logomark centre at ~32% of 320px */
+      animation: fadeIn 0.2s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+
+    /* ── Logomark ────────────────────────────────────────────────────── */
+    .logomark {
+      width: 100px;
+      height: 100px;
+      background: #DBEAFE;
+      border-radius: 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 28px 23px;
+      gap: 12px;
+      flex-shrink: 0;
+      margin-bottom: 14px;
+    }
+    .bar { border-radius: 3px; }
+    .b1 { width: 100%; height: 7px; background: #111827; }
+    .b2 { width: 60%;  height: 7px; background: #3B82F6; }
+    .b3 { width: 78%;  height: 7px; background: #E5E7EB; }
+
+    /* ── Wordmark ────────────────────────────────────────────────────── */
+    .wordmark {
+      font-size: 22px;
+      font-weight: 500;
+      color: #111827;
+      letter-spacing: -0.025em;
+      margin-bottom: 22px;
+    }
+
+    /* ── State zone ──────────────────────────────────────────────────── */
+    .state-zone {
+      width: 100%;
+      padding: 0 40px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* ── STATE 1: Checking ───────────────────────────────────────────── */
+    .state {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+    }
+    .state.active { display: flex; }
+
+    .dots { display: flex; gap: 7px; align-items: center; margin-bottom: 11px; }
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #1D4ED8;
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+    .dot:nth-child(2) { animation-delay: 0.15s; }
+    .dot:nth-child(3) { animation-delay: 0.30s; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.2; transform: scale(0.65); }
+    }
+
+    .checking-label {
+      font-size: 13px;
+      font-weight: 400;
+      color: #9CA3AF;
+    }
+
+    /* ── STATE 2: Downloading ────────────────────────────────────────── */
+    .version-label {
+      font-size: 14px;
+      font-weight: 500;
+      color: #111827;
+      align-self: flex-start;
+      margin-bottom: 11px;
+    }
+
+    .progress-track {
+      width: 100%;
+      height: 6px;
+      background: #E5E7EB;
+      border-radius: 3px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: #1D4ED8;
+      border-radius: 3px;
+      transition: width 0.3s ease;
+    }
+
+    .progress-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+    }
+    .status-label {
+      font-size: 12px;
+      font-weight: 400;
+      color: #9CA3AF;
+    }
+    .percent-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: #111827;
+    }
+
+    /* ── STATE 3: Installing ─────────────────────────────────────────── */
+    .install-track {
+      width: 100%;
+      height: 6px;
+      background: #E5E7EB;
+      border-radius: 3px;
+      overflow: hidden;
+      margin-bottom: 10px;
+    }
+    .install-fill {
+      height: 100%;
+      width: 0%;
+      background: #1D4ED8;
+      border-radius: 3px;
+      transition: width 0.7s ease;
+    }
+    .install-status {
+      font-size: 13px;
+      font-weight: 400;
+      color: #9CA3AF;
+      align-self: flex-start;
+    }
+
+    .restart-zone {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+    }
+    .restart-zone.visible { display: flex; }
+
+    .checkmark { width: 28px; height: 28px; margin-bottom: 2px; }
+    .restart-label {
+      font-size: 13px;
+      font-weight: 400;
+      color: #9CA3AF;
+    }
+
+    /* ── STATE 4: Stalled ────────────────────────────────────────────── */
+    .stall-label {
+      font-size: 14px;
+      font-weight: 500;
+      color: #111827;
+      margin-bottom: 5px;
+    }
+    .stall-sub {
+      font-size: 13px;
+      font-weight: 400;
+      color: #9CA3AF;
+      margin-bottom: 14px;
+    }
+    .stall-actions { display: flex; gap: 8px; }
+
+    .btn-primary {
+      background: #111827; color: #FFFFFF;
+      border: none; padding: 9px 20px;
+      border-radius: 6px; font-size: 13px; font-weight: 500;
+      font-family: inherit; cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn-primary:hover { background: #1F2937; }
+
+    .btn-secondary {
+      background: transparent; color: #111827;
+      border: 1px solid #E5E7EB; padding: 9px 20px;
+      border-radius: 6px; font-size: 13px; font-weight: 500;
+      font-family: inherit; cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .btn-secondary:hover { border-color: #9CA3AF; background: #F3F4F6; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+
+    <div class="logomark">
+      <div class="bar b1"></div>
+      <div class="bar b2"></div>
+      <div class="bar b3"></div>
+    </div>
+
+    <div class="wordmark">Framework</div>
+
+    <div class="state-zone">
+
+      <!-- STATE 1: Checking -->
+      <div class="state active" id="stateChecking">
+        <div class="dots">
+          <div class="dot"></div>
+          <div class="dot"></div>
+          <div class="dot"></div>
+        </div>
+        <div class="checking-label">Checking for updates...</div>
+      </div>
+
+      <!-- STATE 2: Downloading -->
+      <div class="state" id="stateDownloading">
+        <div class="version-label" id="versionLabel">Updating Framework</div>
+        <div class="progress-track">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div class="progress-meta">
+          <div class="status-label" id="statusLabel">Downloading update...</div>
+          <div class="percent-label" id="percentLabel">0%</div>
+        </div>
+      </div>
+
+      <!-- STATE 3: Installing -->
+      <div class="state" id="stateInstalling">
+        <div class="install-track">
+          <div class="install-fill" id="installFill"></div>
+        </div>
+        <div class="install-status" id="installStatus">Installing update...</div>
+        <div class="restart-zone" id="restartZone">
+          <svg class="checkmark" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <circle cx="14" cy="14" r="13" stroke="#1D4ED8" stroke-width="1.75"/>
+            <path d="M8.5 14.5L12.5 18.5L19.5 10" stroke="#1D4ED8" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <div class="restart-label">Restarting Framework...</div>
+        </div>
+      </div>
+
+      <!-- STATE 4: Stalled -->
+      <div class="state" id="stateStalled">
+        <div class="stall-label">Download stalled.</div>
+        <div class="stall-sub">Something interrupted the download.</div>
+        <div class="stall-actions">
+          <button class="btn-primary" id="retryBtn">Retry</button>
+          <button class="btn-secondary" id="skipBtn">Open app anyway</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    'use strict'
+
+    // ── Element refs ────────────────────────────────────────────────────
+    const states = {
+      checking:    document.getElementById('stateChecking'),
+      downloading: document.getElementById('stateDownloading'),
+      installing:  document.getElementById('stateInstalling'),
+      stalled:     document.getElementById('stateStalled'),
+    }
+    const progressFill  = document.getElementById('progressFill')
+    const installFill   = document.getElementById('installFill')
+    const versionLabel  = document.getElementById('versionLabel')
+    const percentLabel  = document.getElementById('percentLabel')
+    const statusLabel   = document.getElementById('statusLabel')
+    const installStatus = document.getElementById('installStatus')
+    const restartZone   = document.getElementById('restartZone')
+    const retryBtn      = document.getElementById('retryBtn')
+    const skipBtn       = document.getElementById('skipBtn')
+
+    // ── State machine ────────────────────────────────────────────────────
+    function showState(name) {
+      Object.entries(states).forEach(([key, el]) => {
+        el.classList.toggle('active', key === name)
+      })
+    }
+
+    // Initial state on load
+    showState('checking')
+
+    // ── IPC bridge ───────────────────────────────────────────────────────
+    if (window.electronAPI && window.electronAPI.update) {
+      window.electronAPI.update.onStatus((data) => {
+
+        if (data.state === 'downloading') {
+          // Sanitise version string — textContent only, never innerHTML
+          if (typeof data.version === 'string' && data.version.length < 32) {
+            versionLabel.textContent = 'Updating to v' + data.version.replace(/[^0-9.\-a-zA-Z]/g, '')
+          }
+          const pct = typeof data.percent === 'number'
+            ? Math.min(100, Math.max(0, Math.round(data.percent)))
+            : 0
+          progressFill.style.width = pct + '%'
+          percentLabel.textContent = pct + '%'
+          statusLabel.textContent = 'Downloading update...'
+          showState('downloading')
+        }
+
+        else if (data.state === 'installing') {
+          showState('installing')
+          installStatus.textContent = 'Installing update...'
+          installStatus.style.display = ''
+          restartZone.classList.remove('visible')
+          installFill.style.width = '0%'
+          // Two rAF ensures the browser has painted at 0% before animating to 100%
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            installFill.style.width = '100%'
+          }))
+          // Show restart confirmation after fill completes
+          setTimeout(() => {
+            installStatus.style.display = 'none'
+            restartZone.classList.add('visible')
+          }, 800)
+        }
+
+        else if (data.state === 'stalled') {
+          // Reset download state so retry starts clean
+          progressFill.style.width = '0%'
+          percentLabel.textContent = '0%'
+          showState('stalled')
+        }
+      })
+    }
+
+    // ── Button handlers ──────────────────────────────────────────────────
+    retryBtn.addEventListener('click', () => {
+      statusLabel.textContent = 'Downloading update...'
+      progressFill.style.width = '0%'
+      percentLabel.textContent = '0%'
+      showState('downloading')
+      if (window.electronAPI && window.electronAPI.update) {
+        window.electronAPI.update.retry()
+      }
+    })
+
+    skipBtn.addEventListener('click', () => {
+      if (window.electronAPI && window.electronAPI.update) {
+        window.electronAPI.update.skip()
+      }
+    })
+  </script>
+</body>
+</html>

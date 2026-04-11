@@ -1,23 +1,23 @@
 const { app, BrowserWindow, shell, Menu, Tray, Notification, nativeImage, ipcMain, globalShortcut } = require('electron')
 const path = require('path')
-const fs = require('fs')
+const fs   = require('fs')
 
 // ─── Squirrel startup events (Windows installer lifecycle) ────────────────────
 // Must be handled before anything else — quit immediately on install/update/uninstall
 if (process.platform === 'win32') {
   const squirrelCommand = process.argv[1]
-  if (squirrelCommand === '--squirrel-install' ||
-      squirrelCommand === '--squirrel-updated' ||
-      squirrelCommand === '--squirrel-uninstall' ||
+  if (squirrelCommand === '--squirrel-install'   ||
+      squirrelCommand === '--squirrel-updated'    ||
+      squirrelCommand === '--squirrel-uninstall'  ||
       squirrelCommand === '--squirrel-obsolete') {
     app.quit()
   }
 }
 
 // ─── Config ───────────────────────────────────────────────────────────────────
-const APP_URL  = 'https://framework.club'
-const APP_NAME = 'Framework'
-const PROTOCOL = 'framework'
+const APP_URL   = 'https://framework.club'
+const APP_NAME  = 'Framework'
+const PROTOCOL  = 'framework'
 const IS_PACKAGED = app.isPackaged
 
 // ─── Auto-updater ─────────────────────────────────────────────────────────────
@@ -26,12 +26,12 @@ let autoUpdater = null
 if (IS_PACKAGED) {
   try {
     autoUpdater = require('electron-updater').autoUpdater
-    autoUpdater.autoDownload = false  // ask the user before downloading
+    // We control the download manually — never auto-download silently
+    autoUpdater.autoDownload        = false
     autoUpdater.autoInstallOnAppQuit = false
-    // Disable update checks in dev; electron-updater reads publish config from package.json
-    autoUpdater.logger = null
+    autoUpdater.logger              = null  // use our own logError() instead
   } catch (e) {
-    // electron-updater not installed — safe to ignore, update checks will be skipped
+    // electron-updater not bundled — update checks will be skipped gracefully
     autoUpdater = null
   }
 }
@@ -49,7 +49,7 @@ if (process.defaultApp) {
   app.setAsDefaultProtocolClient(PROTOCOL)
 }
 
-// ─── Window state ─────────────────────────────────────────────────────────────
+// ─── Window state persistence ─────────────────────────────────────────────────
 const STATE_FILE = path.join(app.getPath('userData'), 'window-state.json')
 
 function loadState() {
@@ -58,6 +58,7 @@ function loadState() {
 }
 
 function saveState(win) {
+  if (!win || win.isDestroyed()) return
   if (win.isMaximized() || win.isMinimized()) {
     try {
       const prev = loadState()
@@ -71,14 +72,25 @@ function saveState(win) {
   } catch {}
 }
 
+// ─── Error logging ────────────────────────────────────────────────────────────
+const LOG_FILE = path.join(app.getPath('userData'), 'update-errors.log')
+
+function logError(tag, message) {
+  if (!IS_PACKAGED) { console.error(tag, message); return }
+  try {
+    const entry = `${new Date().toISOString()} ${tag} ${String(message)}\n`
+    fs.appendFileSync(LOG_FILE, entry)
+  } catch {}
+}
+
 // ─── Auth callback ────────────────────────────────────────────────────────────
 // Handles framework://auth?at=ACCESS_TOKEN&rt=REFRESH_TOKEN
 //
 // Security note: tokens are forwarded as URL query params to /portal/desktop-auth,
 // where they are consumed immediately by Supabase setSession() and not stored.
 // The desktop-auth page then redirects to /portal, clearing the tokens from the URL.
-// A more hardened future approach: pass tokens via postMessage or a one-time token
-// store (safeStorage) to avoid any URL-bar or referrer-log exposure.
+// Recommended future improvement: use safeStorage to store a one-time token and
+// retrieve it via a secure IPC call, removing tokens from the URL entirely.
 function handleAuthCallback(url) {
   try {
     const parsed = new URL(url)
@@ -90,31 +102,81 @@ function handleAuthCallback(url) {
     mainWindow.loadURL(target)
     if (mainWindow.isMinimized()) mainWindow.restore()
     mainWindow.focus()
-  } catch (e) {
+  } catch {
     // Silently discard malformed auth callbacks
   }
 }
 
+// ─── Eastern time utilities ───────────────────────────────────────────────────
+// Returns the current time decomposed into Eastern time (EST/EDT), accounting
+// for US daylight saving rules: EDT = UTC-4 (second Sun Mar → first Sun Nov),
+// EST = UTC-5 (first Sun Nov → second Sun Mar).
+
+function getEasternTime() {
+  const now  = new Date()
+  const year = now.getUTCFullYear()
+
+  // Second Sunday in March at 02:00 EST = 07:00 UTC → DST starts (→ EDT)
+  const marchFirst    = new Date(Date.UTC(year, 2, 1))
+  const marchFirstDay = marchFirst.getUTCDay() // 0=Sun
+  const daysTo1stSunMar = marchFirstDay === 0 ? 7 : (7 - marchFirstDay)
+  const dstStart = new Date(Date.UTC(year, 2, 1 + daysTo1stSunMar + 7, 7, 0, 0))
+
+  // First Sunday in November at 02:00 EDT = 06:00 UTC → DST ends (→ EST)
+  const novFirst    = new Date(Date.UTC(year, 10, 1))
+  const novFirstDay = novFirst.getUTCDay()
+  const daysTo1stSunNov = novFirstDay === 0 ? 0 : (7 - novFirstDay)
+  const dstEnd = new Date(Date.UTC(year, 10, 1 + daysTo1stSunNov, 6, 0, 0))
+
+  const isEDT = now >= dstStart && now < dstEnd
+  const offsetMs = (isEDT ? -4 : -5) * 60 * 60 * 1000
+
+  const eastern = new Date(now.getTime() + offsetMs)
+  return {
+    dayOfWeek:    eastern.getUTCDay(),     // 0=Sun … 6=Sat
+    hour:         eastern.getUTCHours(),
+    minute:       eastern.getUTCMinutes(),
+    totalMinutes: eastern.getUTCHours() * 60 + eastern.getUTCMinutes(),
+  }
+}
+
+// Returns true if the current moment falls inside the AM session window
+// (Mon–Fri, 08:00–11:00 Eastern).  We defer updates during this window
+// to avoid interrupting a live session.
+function isInLiveSessionHours() {
+  const { dayOfWeek, totalMinutes } = getEasternTime()
+  if (dayOfWeek === 0 || dayOfWeek === 6) return false  // weekend
+  return totalMinutes >= 480 && totalMinutes < 660       // 08:00–11:00
+}
+
+// Returns the number of milliseconds until 11:00 Eastern today.
+function msUntilSessionEnd() {
+  const { hour, minute } = getEasternTime()
+  if (hour >= 11) return 0
+  return ((11 * 60) - (hour * 60 + minute)) * 60 * 1000
+}
+
 // ─── Splash window ────────────────────────────────────────────────────────────
-let splashWindow = null
-const SPLASH_MIN_MS = 900  // minimum time splash is shown, even on fast connections
+let splashWindow  = null
+let splashShownAt = 0
+const SPLASH_MIN_MS = 900   // minimum splash display time even on fast connections
 
 function createSplash() {
   splashWindow = new BrowserWindow({
-    width: 400,
-    height: 300,
-    frame: false,
-    resizable: false,
-    movable: true,
-    center: true,
+    width:       400,
+    height:      300,
+    frame:       false,
+    resizable:   false,
+    movable:     true,
+    center:      true,
     transparent: false,
     backgroundColor: '#F9FAFB',
     alwaysOnTop: true,
     skipTaskbar: true,
     webPreferences: {
-      nodeIntegration: false,
+      nodeIntegration:  false,
       contextIsolation: true,
-      sandbox: true,
+      sandbox:          true,
     },
   })
   splashWindow.loadFile(path.join(__dirname, 'build', 'splash.html'))
@@ -128,12 +190,96 @@ function closeSplash() {
   }
 }
 
+// ─── Update window ────────────────────────────────────────────────────────────
+let updateWindow = null
+
+function createUpdateWindow() {
+  updateWindow = new BrowserWindow({
+    width:       440,
+    height:      320,
+    frame:       false,
+    resizable:   false,
+    movable:     false,
+    center:      true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    backgroundColor: '#F9FAFB',
+    show: false,
+    webPreferences: {
+      preload:          path.join(__dirname, 'build', 'update-preload.js'),
+      contextIsolation: true,
+      nodeIntegration:  false,
+      sandbox:          true,
+      devTools:         !IS_PACKAGED,
+    },
+  })
+  updateWindow.loadFile(path.join(__dirname, 'build', 'update.html'))
+  updateWindow.once('closed', () => { updateWindow = null })
+}
+
+// Send a status event to the update window.
+function sendUpdateStatus(data) {
+  if (!updateWindow || updateWindow.isDestroyed()) return
+  updateWindow.webContents.send('update:status', data)
+}
+
+// Show the update window — sends the initial downloading status.
+// Waits for did-finish-load if the page hasn't loaded yet.
+function showUpdateWindow(version) {
+  if (!updateWindow || updateWindow.isDestroyed()) return
+
+  const sendInitial = () => {
+    sendUpdateStatus({ state: 'downloading', version, percent: 0 })
+  }
+
+  if (updateWindow.webContents.isLoading()) {
+    updateWindow.webContents.once('did-finish-load', sendInitial)
+  } else {
+    sendInitial()
+  }
+
+  updateWindow.show()
+}
+
+function closeUpdateWindow() {
+  if (updateWindow && !updateWindow.isDestroyed()) {
+    updateWindow.destroy()
+    updateWindow = null
+  }
+}
+
+// ─── Update flow state ────────────────────────────────────────────────────────
+let proceedAllowed      = false  // true once update decision is resolved
+let mainWindowReady     = false  // true once main window fires ready-to-show
+let updateConsecErrors  = 0      // consecutive update errors (triggers notification at 3)
+let updateCheckTimeout  = null   // 8-second max wait for update-check resolution
+let downloadStallTimer  = null   // 30-second stall detector during download
+
+// Called when we know the update path is resolved (no update, timeout, error, skip).
+// If the main window is already ready, shows it immediately; otherwise waits for
+// ready-to-show.  Always enforces the SPLASH_MIN_MS minimum display time.
+function proceedWhenReady() {
+  closeUpdateWindow()
+  proceedAllowed = true
+
+  if (!mainWindowReady) return  // ready-to-show handler will pick this up
+
+  const elapsed    = Date.now() - splashShownAt
+  const remaining  = Math.max(0, SPLASH_MIN_MS - elapsed)
+  setTimeout(() => {
+    closeSplash()
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    const state = loadState()
+    if (state.maximized) mainWindow.maximize()
+    mainWindow.show()
+    scheduleSessionCheck()
+  }, remaining)
+}
+
 // ─── Main window ──────────────────────────────────────────────────────────────
-let mainWindow = null
-let tray = null
+let mainWindow        = null
+let tray              = null
 let browserLoginOpened = false
-let splashShownAt = 0
-let liveSessionNotifiedToday = false
 
 function createWindow() {
   const state = loadState()
@@ -148,7 +294,7 @@ function createWindow() {
     minHeight: 600,
     title:     APP_NAME,
     icon:      path.join(__dirname, 'build', 'icon.png'),
-    // Surface colour prevents flash between Electron chrome and web app background
+    // Surface colour prevents white flash between Electron chrome and web app background
     backgroundColor: '#F9FAFB',
     show: false,
     webPreferences: {
@@ -156,7 +302,6 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration:  false,
       sandbox:          true,
-      // Block devtools in production builds
       devTools:         !IS_PACKAGED,
     },
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
@@ -169,19 +314,20 @@ function createWindow() {
     }),
   })
 
-  // Show main window only after splash has been visible for at least SPLASH_MIN_MS
+  // Show main window only when both:
+  //  1. the update check has resolved (proceedAllowed = true)
+  //  2. the renderer has finished loading (mainWindowReady = true)
+  // and only after the splash has been shown for at least SPLASH_MIN_MS.
   mainWindow.once('ready-to-show', () => {
-    const elapsed = Date.now() - splashShownAt
+    mainWindowReady = true
+    if (!proceedAllowed) return   // still waiting for update decision — proceedWhenReady() handles this
+    const elapsed   = Date.now() - splashShownAt
     const remaining = Math.max(0, SPLASH_MIN_MS - elapsed)
     setTimeout(() => {
       closeSplash()
-      if (state.maximized) mainWindow.maximize()
+      const s = loadState()
+      if (s.maximized) mainWindow.maximize()
       mainWindow.show()
-      // Check for updates after main window is shown (non-blocking)
-      if (autoUpdater) {
-        setTimeout(() => checkForUpdates(), 3000)
-      }
-      // Check for upcoming live sessions
       scheduleSessionCheck()
     }, remaining)
   })
@@ -213,7 +359,7 @@ function createWindow() {
     }
   })
 
-  // Minimise to tray on close (Windows) — first time shows tooltip
+  // Minimise to tray on close (Windows) — first time shows a tooltip
   mainWindow.on('close', (event) => {
     if (process.platform !== 'darwin' && tray) {
       event.preventDefault()
@@ -226,11 +372,10 @@ function createWindow() {
 
   mainWindow.on('closed', () => { mainWindow = null })
 
-  // Register keyboard shortcuts for the renderer
-  // Keyboard shortcuts — intercepted here so they work even when a text input is focused
-  // Cmd+K is handled in the renderer (document keydown) to allow the palette to receive focus.
-  // Cmd+L, Cmd+R, Cmd+, are intercepted here because they would otherwise conflict with
-  // Chrome's built-in shortcuts (location bar, reload, settings).
+  // Keyboard shortcuts that would conflict with Chrome's defaults are
+  // intercepted here so they work even when a text input is focused.
+  // Cmd+K is handled in the renderer (document keydown) so the command
+  // palette can receive focus correctly.
   mainWindow.webContents.on('before-input-event', (event, input) => {
     const isMod = process.platform === 'darwin' ? input.meta : input.control
     if (!isMod || input.shift || input.alt) return
@@ -240,7 +385,7 @@ function createWindow() {
         mainWindow.webContents.executeJavaScript('window.__fwNav && window.__fwNav("library")').catch(() => {})
         break
       case 'r':
-        // Only intercept plain Cmd+R (not Cmd+Shift+R reload)
+        // Plain Cmd+R only (Cmd+Shift+R is browser reload)
         event.preventDefault()
         mainWindow.webContents.executeJavaScript('window.__fwNav && window.__fwNav("replays")').catch(() => {})
         break
@@ -252,6 +397,151 @@ function createWindow() {
   })
 }
 
+// ─── Auto-update logic ────────────────────────────────────────────────────────
+function clearStallTimer() {
+  if (downloadStallTimer) { clearTimeout(downloadStallTimer); downloadStallTimer = null }
+}
+
+function resetStallTimer() {
+  clearStallTimer()
+  downloadStallTimer = setTimeout(() => {
+    // No download-progress event for 30 seconds — signal stall
+    sendUpdateStatus({ state: 'stalled' })
+  }, 30_000)
+}
+
+function handleUpdateError(err) {
+  clearTimeout(updateCheckTimeout)
+  clearStallTimer()
+  logError('[updater]', err?.message ?? String(err))
+
+  updateConsecErrors++
+
+  // Close update window and fall through to the normal app launch
+  closeUpdateWindow()
+  proceedWhenReady()
+
+  // After 3 consecutive failures, surface a brief OS notification
+  if (updateConsecErrors >= 3 && Notification.isSupported()) {
+    const n = new Notification({
+      title:  'Framework',
+      body:   'Update check failed. Framework will retry automatically.',
+      silent: true,
+    })
+    n.show()
+  }
+
+  // Schedule a retry in 30 minutes
+  setTimeout(() => { startUpdateCheck() }, 30 * 60 * 1000)
+}
+
+function setupAutoUpdater() {
+  if (!autoUpdater) return
+
+  autoUpdater.on('update-not-available', () => {
+    clearTimeout(updateCheckTimeout)
+    updateConsecErrors = 0
+    proceedWhenReady()
+  })
+
+  autoUpdater.on('update-available', (info) => {
+    clearTimeout(updateCheckTimeout)
+    updateConsecErrors = 0
+
+    // ── Session-hours deferral ──────────────────────────────────────────
+    // Do not interrupt a live AM session (Mon–Fri 08:00–11:00 Eastern).
+    if (isInLiveSessionHours()) {
+      const deferMs = msUntilSessionEnd() + 5 * 60 * 1000  // session end + 5 min buffer
+      logError('[updater]', `Update deferred — inside session hours. Retrying in ${Math.round(deferMs / 60000)} min.`)
+      setTimeout(() => {
+        if (!isInLiveSessionHours()) startUpdateCheck()
+      }, deferMs)
+      proceedWhenReady()
+      return
+    }
+
+    // ── Show update window ──────────────────────────────────────────────
+    // Brief pause so the splash doesn't flash off immediately
+    setTimeout(() => {
+      closeSplash()
+      showUpdateWindow(info.version)
+
+      // Start the download
+      resetStallTimer()
+      autoUpdater.downloadUpdate().catch(handleUpdateError)
+    }, 400)
+  })
+
+  autoUpdater.on('download-progress', (progressObj) => {
+    resetStallTimer()
+    const percent = Math.round(progressObj.percent ?? 0)
+    sendUpdateStatus({ state: 'downloading', percent })
+  })
+
+  autoUpdater.on('update-downloaded', (info) => {
+    clearStallTimer()
+    sendUpdateStatus({ state: 'installing' })
+    // Wait for the installing animation before restarting
+    setTimeout(() => {
+      saveState(mainWindow)
+      autoUpdater.quitAndInstall(false, true)
+    }, 1_800)
+  })
+
+  autoUpdater.on('error', handleUpdateError)
+}
+
+// Begin the update check that runs on every launch.
+// The entire check has an 8-second hard timeout — a slow network must
+// never hold up the app launch indefinitely.
+function startUpdateCheck() {
+  if (!autoUpdater || !IS_PACKAGED) {
+    // Dev mode or no updater — proceed straight to main window
+    proceedWhenReady()
+    return
+  }
+
+  updateCheckTimeout = setTimeout(() => {
+    logError('[updater]', 'Update check timed out after 8s — proceeding to launch')
+    proceedWhenReady()
+  }, 8_000)
+
+  try {
+    autoUpdater.checkForUpdates().catch((err) => {
+      clearTimeout(updateCheckTimeout)
+      handleUpdateError(err)
+    })
+  } catch (err) {
+    clearTimeout(updateCheckTimeout)
+    handleUpdateError(err)
+  }
+}
+
+// Manual update check (from tray menu / macOS app menu)
+function checkForUpdateManual() {
+  if (!autoUpdater || !IS_PACKAGED) return
+  try {
+    autoUpdater.checkForUpdates().catch(() => {})
+  } catch {}
+}
+
+// ─── IPC handlers ─────────────────────────────────────────────────────────────
+function setupIPC() {
+  // Update window — skip: open the main window without installing
+  ipcMain.on('update:skip', () => {
+    clearStallTimer()
+    closeUpdateWindow()
+    proceedWhenReady()
+  })
+
+  // Update window — retry: restart a stalled download
+  ipcMain.on('update:retry', () => {
+    if (!autoUpdater) return
+    resetStallTimer()
+    autoUpdater.downloadUpdate().catch(handleUpdateError)
+  })
+}
+
 // ─── System tray ──────────────────────────────────────────────────────────────
 let trayTooltipShown = false
 
@@ -260,9 +550,9 @@ function showTrayMinimiseTooltip() {
   trayTooltipShown = true
   if (Notification.isSupported()) {
     const n = new Notification({
-      title: 'Framework is still running',
-      body: 'Framework is minimised to the system tray. Click the tray icon to reopen.',
-      icon: path.join(__dirname, 'build', 'icon.png'),
+      title:  'Framework is still running',
+      body:   'Framework is minimised to the system tray. Click the tray icon to reopen.',
+      icon:   path.join(__dirname, 'build', 'icon.png'),
       silent: true,
     })
     n.show()
@@ -283,73 +573,50 @@ function createTray() {
     updateTrayMenu()
 
     tray.on('double-click', () => {
-      if (mainWindow) {
-        mainWindow.show()
-        mainWindow.focus()
-      }
+      if (mainWindow) { mainWindow.show(); mainWindow.focus() }
     })
 
     // Single click on Windows also opens the window
     if (process.platform === 'win32') {
       tray.on('click', () => {
         if (mainWindow) {
-          if (mainWindow.isVisible()) {
-            mainWindow.focus()
-          } else {
-            mainWindow.show()
-            mainWindow.focus()
-          }
+          if (mainWindow.isVisible()) mainWindow.focus()
+          else { mainWindow.show(); mainWindow.focus() }
         }
       })
     }
-  } catch (e) {
-    // Tray creation can fail in some headless environments — safe to ignore
+  } catch {
+    // Tray creation can fail in headless environments — safe to ignore
   }
 }
 
 function updateTrayMenu(sessionInfo) {
   if (!tray || tray.isDestroyed()) return
-  const sessionLabel = sessionInfo
-    ? `Today's session: ${sessionInfo}`
-    : "Today's session: —"
+  const sessionLabel = sessionInfo ? `Today's session: ${sessionInfo}` : "Today's session: —"
 
   const menu = Menu.buildFromTemplate([
     {
       label: 'Open Framework',
-      click: () => {
-        if (mainWindow) {
-          mainWindow.show()
-          mainWindow.focus()
-        }
-      },
+      click: () => { if (mainWindow) { mainWindow.show(); mainWindow.focus() } },
     },
     { label: sessionLabel, enabled: false },
     { type: 'separator' },
     {
       label: 'Check for updates',
-      click: () => {
-        if (autoUpdater) checkForUpdates(true)
-        else if (mainWindow) {
-          mainWindow.show()
-          mainWindow.focus()
-        }
-      },
+      click: () => { if (autoUpdater) checkForUpdateManual() },
     },
     { type: 'separator' },
     {
       label: 'Quit',
-      click: () => {
-        saveState(mainWindow)
-        tray = null
-        app.quit()
-      },
+      click: () => { saveState(mainWindow); tray = null; app.quit() },
     },
   ])
   tray.setContextMenu(menu)
 }
 
 // ─── Live session notifications ───────────────────────────────────────────────
-let sessionCheckTimer = null
+let sessionCheckTimer          = null
+let liveSessionNotifiedToday   = false
 
 async function checkLiveSchedule() {
   if (liveSessionNotifiedToday) return
@@ -372,11 +639,8 @@ async function checkLiveSchedule() {
     if (!data) return
 
     // Update tray menu with session info
-    if (data.session?.is_live) {
-      updateTrayMenu('Live now')
-    } else if (data.next_session) {
-      updateTrayMenu(`${data.next_session} EST`)
-    }
+    if (data.session?.is_live) updateTrayMenu('Live now')
+    else if (data.next_session)  updateTrayMenu(`${data.next_session} EST`)
 
     // Fire notification if session starts within 15 minutes
     if (data.next_session_ms && data.next_session_ms > 0 && data.next_session_ms <= 15 * 60 * 1000) {
@@ -384,118 +648,45 @@ async function checkLiveSchedule() {
       if (Notification.isSupported()) {
         const n = new Notification({
           title: 'Framework — Live session starting',
-          body: `AM session starts in ${minutesAway} minute${minutesAway === 1 ? '' : 's'}. 0800–1100 EST.`,
-          icon: path.join(__dirname, 'build', 'icon.png'),
+          body:  `AM session starts in ${minutesAway} minute${minutesAway === 1 ? '' : 's'}. 0800–1100 EST.`,
+          icon:  path.join(__dirname, 'build', 'icon.png'),
           silent: false,
         })
         n.on('click', () => {
           if (mainWindow) {
-            mainWindow.show()
-            mainWindow.focus()
-            mainWindow.webContents.executeJavaScript('window.__fwNav && window.__fwNav("livestream")')
+            mainWindow.show(); mainWindow.focus()
+            mainWindow.webContents.executeJavaScript('window.__fwNav && window.__fwNav("livestream")').catch(() => {})
           }
         })
         n.show()
         liveSessionNotifiedToday = true
       }
     }
-  } catch (e) {
-    // Network errors during session check are non-critical
+  } catch {
+    // Network errors during session check are non-critical — ignore silently
   }
 }
 
 function scheduleSessionCheck() {
-  // Immediate check on launch
   checkLiveSchedule()
-  // Then every 5 minutes
-  sessionCheckTimer = setInterval(() => {
-    checkLiveSchedule()
-  }, 5 * 60 * 1000)
-  // Reset the daily notification flag at midnight
+  sessionCheckTimer = setInterval(() => { checkLiveSchedule() }, 5 * 60 * 1000)
+
+  // Reset daily notification flag at midnight
   const now = new Date()
   const msToMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime() - now.getTime()
   setTimeout(() => {
     liveSessionNotifiedToday = false
-    // Re-schedule after midnight
+    if (sessionCheckTimer) { clearInterval(sessionCheckTimer); sessionCheckTimer = null }
     scheduleSessionCheck()
   }, msToMidnight)
-}
-
-// ─── Auto-update logic ────────────────────────────────────────────────────────
-let updateBannerShown = false
-
-function checkForUpdates(manual = false) {
-  if (!autoUpdater) return
-  try {
-    autoUpdater.checkForUpdates().catch(() => {})
-  } catch (e) {}
-}
-
-function setupAutoUpdater() {
-  if (!autoUpdater) return
-
-  autoUpdater.on('update-available', (info) => {
-    if (updateBannerShown) return
-    updateBannerShown = true
-    // Send to renderer to show in-app banner
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('update-available', { version: info.version })
-    }
-  })
-
-  autoUpdater.on('download-progress', (progress) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('update-progress', { percent: Math.round(progress.percent) })
-    }
-  })
-
-  autoUpdater.on('update-downloaded', (info) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('update-downloaded', { version: info.version })
-    }
-  })
-
-  autoUpdater.on('error', (err) => {
-    // Silently log — never crash on update failure
-    if (!IS_PACKAGED) console.error('[updater]', err.message)
-  })
-}
-
-// ─── IPC handlers ─────────────────────────────────────────────────────────────
-function setupIPC() {
-  // Renderer requests update download
-  ipcMain.on('update-download', () => {
-    if (autoUpdater) {
-      try { autoUpdater.downloadUpdate().catch(() => {}) } catch (e) {}
-    }
-  })
-
-  // Renderer requests install + restart
-  ipcMain.on('update-install', () => {
-    if (autoUpdater) {
-      try {
-        saveState(mainWindow)
-        autoUpdater.quitAndInstall(false, true)
-      } catch (e) {}
-    }
-  })
-
-  // Renderer dismisses update banner
-  ipcMain.on('update-dismiss', () => {
-    updateBannerShown = false
-  })
 }
 
 // ─── App menu ─────────────────────────────────────────────────────────────────
 function buildMenu() {
   const isMac = process.platform === 'darwin'
+  if (!isMac) { Menu.setApplicationMenu(null); return }
 
-  if (!isMac) {
-    Menu.setApplicationMenu(null)
-    return
-  }
-
-  // Mac menu — minimal, no reload/devtools in production
+  // macOS only — minimal menu, no reload/devtools in production
   const viewSubmenu = IS_PACKAGED
     ? [
         { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' },
@@ -515,8 +706,8 @@ function buildMenu() {
         { role: 'about' },
         { type: 'separator' },
         {
-          label: 'Check for updates…',
-          click: () => checkForUpdates(true),
+          label:   'Check for updates…',
+          click:   () => checkForUpdateManual(),
           enabled: !!autoUpdater,
         },
         { type: 'separator' },
@@ -532,10 +723,7 @@ function buildMenu() {
         { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' },
       ],
     },
-    {
-      label: 'View',
-      submenu: viewSubmenu,
-    },
+    { label: 'View', submenu: viewSubmenu },
     {
       label: 'Window',
       submenu: [
@@ -546,23 +734,29 @@ function buildMenu() {
   ]))
 }
 
-// ─── Lifecycle ────────────────────────────────────────────────────────────────
+// ─── App lifecycle ────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
   buildMenu()
   setupIPC()
   setupAutoUpdater()
 
-  // Show splash first, record the time so we can enforce minimum display duration
+  // 1. Show splash immediately — brand presence from first frame
   createSplash()
   splashShownAt = Date.now()
 
-  // Create main window immediately — it loads in background while splash is shown
+  // 2. Create update window (hidden) — ready to show if an update is found
+  createUpdateWindow()
+
+  // 3. Create main window (loads in background while splash/update window is shown)
   createWindow()
 
-  // Create tray (Windows + Linux only; macOS uses the Dock)
-  if (process.platform !== 'darwin') {
-    createTray()
-  }
+  // 4. Create tray (Windows/Linux — macOS uses the Dock)
+  if (process.platform !== 'darwin') createTray()
+
+  // 5. Start update check — this is the decision gate.
+  //    If no update: proceedWhenReady() → main window shows
+  //    If update found: update window shows, main window stays hidden
+  startUpdateCheck()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -570,18 +764,17 @@ app.whenReady().then(() => {
   })
 })
 
-// Windows: deep link arrives as a command-line arg in second-instance
+// Windows: deep link arrives as a command-line arg in the second instance
 app.on('second-instance', (_event, commandLine) => {
   const url = commandLine.find(arg => arg.startsWith(`${PROTOCOL}://`))
   if (url) handleAuthCallback(url)
   if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.show()
-    mainWindow.focus()
+    mainWindow.show(); mainWindow.focus()
   }
 })
 
-// Mac: deep link arrives via open-url event
+// macOS: deep link arrives via open-url
 app.on('open-url', (event, url) => {
   event.preventDefault()
   handleAuthCallback(url)
@@ -589,15 +782,16 @@ app.on('open-url', (event, url) => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
-    // Don't quit if we have a tray — window close goes to tray
+    // Don't quit if the app is minimised to tray
     if (!tray) app.quit()
   }
 })
 
-// Clean up on actual quit
 app.on('before-quit', () => {
-  if (sessionCheckTimer) clearInterval(sessionCheckTimer)
-  if (mainWindow && !mainWindow.isDestroyed()) saveState(mainWindow)
+  clearTimeout(updateCheckTimeout)
+  clearStallTimer()
+  if (sessionCheckTimer) { clearInterval(sessionCheckTimer); sessionCheckTimer = null }
+  saveState(mainWindow)
 })
 
 app.on('will-quit', () => {
