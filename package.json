@@ -38,6 +38,7 @@
       "identity": null
     },
     "dmg": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
       "title": "Framework",
       "background": "build/dmg-background.png",
       "window": { "width": 540, "height": 380 },
