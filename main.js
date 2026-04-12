@@ -321,11 +321,12 @@ function closeUpdateWindow() {
 }
 
 // ─── Update flow state ────────────────────────────────────────────────────────
-let proceedAllowed      = false  // true once update decision is resolved
-let mainWindowReady     = false  // true once main window fires ready-to-show
-let updateConsecErrors  = 0      // consecutive update errors (triggers notification at 3)
-let updateCheckTimeout  = null   // 8-second max wait for update-check resolution
-let downloadStallTimer  = null   // 30-second stall detector during download
+let proceedAllowed      = false      // true once update decision is resolved
+let mainWindowReady     = false      // true once main window fires ready-to-show
+let updateConsecErrors  = 0          // consecutive update errors (triggers notification at 3)
+let updateCheckTimeout  = null       // 8-second max wait for update-check resolution
+let downloadStallTimer  = null       // 30-second stall detector during download
+let updateTrigger       = 'launch'   // 'launch' | 'manual' — distinguishes startup vs user-triggered check
 
 // Called when we know the update path is resolved (no update, timeout, error, skip).
 // If the main window is already ready, shows it immediately; otherwise waits for
@@ -507,22 +508,29 @@ function handleUpdateError(err) {
 
   updateConsecErrors++
 
-  // Close update window and fall through to the normal app launch
+  const wasManual = updateTrigger === 'manual'
+  updateTrigger = 'launch'
+
   closeUpdateWindow()
-  proceedWhenReady()
 
-  // After 3 consecutive failures, surface a brief OS notification
-  if (updateConsecErrors >= 3 && Notification.isSupported()) {
-    const n = new Notification({
-      title:  'Framework',
-      body:   'Update check failed. Framework will retry automatically.',
-      silent: true,
-    })
-    n.show()
+  if (!wasManual) {
+    // Launch path: fall through to the normal app launch
+    proceedWhenReady()
+
+    // After 3 consecutive failures, surface a brief OS notification
+    if (updateConsecErrors >= 3 && Notification.isSupported()) {
+      const n = new Notification({
+        title:  'Framework',
+        body:   'Update check failed. Framework will retry automatically.',
+        silent: true,
+      })
+      n.show()
+    }
+
+    // Schedule a retry in 30 minutes
+    setTimeout(() => { startUpdateCheck() }, 30 * 60 * 1000)
   }
-
-  // Schedule a retry in 30 minutes
-  setTimeout(() => { startUpdateCheck() }, 30 * 60 * 1000)
+  // Manual path: app is already running — silently log, no retry
 }
 
 function setupAutoUpdater() {
@@ -531,6 +539,17 @@ function setupAutoUpdater() {
   autoUpdater.on('update-not-available', () => {
     clearTimeout(updateCheckTimeout)
     updateConsecErrors = 0
+
+    if (updateTrigger === 'manual') {
+      // User-triggered check — confirm app is current via OS notification
+      updateTrigger = 'launch'
+      if (Notification.isSupported()) {
+        new Notification({ title: 'Framework', body: 'You\'re up to date.', silent: true }).show()
+      }
+      return
+    }
+
+    // Launch path — proceed to main window
     proceedWhenReady()
   })
 
@@ -538,9 +557,12 @@ function setupAutoUpdater() {
     clearTimeout(updateCheckTimeout)
     updateConsecErrors = 0
 
-    // ── Session-hours deferral ──────────────────────────────────────────
+    const isManual = updateTrigger === 'manual'
+    updateTrigger = 'launch'  // reset before any async work
+
+    // ── Session-hours deferral (launch path only) ───────────────────────
     // Do not interrupt a live AM session (Mon–Fri 08:00–11:00 Eastern).
-    if (isInLiveSessionHours()) {
+    if (!isManual && isInLiveSessionHours()) {
       const deferMs = msUntilSessionEnd() + 5 * 60 * 1000  // session end + 5 min buffer
       logError('[updater]', `Update deferred — inside session hours. Retrying in ${Math.round(deferMs / 60000)} min.`)
       setTimeout(() => {
@@ -550,32 +572,55 @@ function setupAutoUpdater() {
       return
     }
 
-    // ── Show update window ──────────────────────────────────────────────
-    // Brief pause so the splash doesn't flash off immediately
-    setTimeout(() => {
-      closeSplash()
-      showUpdateWindow(info.version)
-
-      // Start the download
+    if (isManual) {
+      // ── Manual check: drive update through the portal banner ───────────
+      // The startup update window was already destroyed — notify the
+      // renderer directly so the in-app update banner becomes visible.
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('update:available', { version: info.version })
+      }
       resetStallTimer()
       autoUpdater.downloadUpdate().catch(handleUpdateError)
-    }, 400)
+    } else {
+      // ── Launch check: show the dedicated update window ──────────────────
+      // Brief pause so the splash doesn't flash off immediately
+      setTimeout(() => {
+        closeSplash()
+        showUpdateWindow(info.version)
+        resetStallTimer()
+        autoUpdater.downloadUpdate().catch(handleUpdateError)
+      }, 400)
+    }
   })
 
   autoUpdater.on('download-progress', (progressObj) => {
     resetStallTimer()
     const percent = Math.round(progressObj.percent ?? 0)
     sendUpdateStatus({ state: 'downloading', percent })
+    // Forward to portal banner (manual-check path has no update window)
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update:progress', { percent })
+    }
   })
 
   autoUpdater.on('update-downloaded', (info) => {
     clearStallTimer()
-    sendUpdateStatus({ state: 'installing' })
-    // Wait for the installing animation before restarting
-    setTimeout(() => {
-      saveState(mainWindow)
-      autoUpdater.quitAndInstall(false, true)
-    }, 1_800)
+    // Forward to portal banner so the "Restart to install" button appears
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update:downloaded', { version: info.version })
+    }
+
+    const hasUpdateWindow = updateWindow && !updateWindow.isDestroyed()
+    if (hasUpdateWindow) {
+      // Launch path: update window is showing — auto-install after brief "installing" state
+      sendUpdateStatus({ state: 'installing' })
+      setTimeout(() => {
+        saveState(mainWindow)
+        autoUpdater.quitAndInstall(false, true)
+      }, 1_800)
+    }
+    // Manual path: no update window — user clicks "Restart to install" in the portal banner,
+    // which sends update:install → ipcMain.on('update:install') → quitAndInstall
   })
 
   autoUpdater.on('error', handleUpdateError)
@@ -590,6 +635,8 @@ function startUpdateCheck() {
     proceedWhenReady()
     return
   }
+
+  updateTrigger = 'launch'
 
   updateCheckTimeout = setTimeout(() => {
     logError('[updater]', 'Update check timed out after 8s — proceeding to launch')
@@ -607,12 +654,21 @@ function startUpdateCheck() {
   }
 }
 
-// Manual update check (from tray menu / macOS app menu)
+// Manual update check triggered from the tray menu, macOS app menu, or renderer.
+// Sets updateTrigger so the shared event handlers route through the portal banner
+// instead of the startup update window (which was destroyed after launch).
 function checkForUpdateManual() {
   if (!autoUpdater || !IS_PACKAGED) return
+  updateTrigger = 'manual'
   try {
-    autoUpdater.checkForUpdates().catch(() => {})
-  } catch {}
+    autoUpdater.checkForUpdates().catch((err) => {
+      logError('[updater]', 'Manual check failed: ' + (err?.message ?? String(err)))
+      updateTrigger = 'launch'
+    })
+  } catch (err) {
+    logError('[updater]', 'Manual check error: ' + (err?.message ?? String(err)))
+    updateTrigger = 'launch'
+  }
 }
 
 // ─── IPC handlers ─────────────────────────────────────────────────────────────
@@ -629,6 +685,28 @@ function setupIPC() {
     if (!autoUpdater) return
     resetStallTimer()
     autoUpdater.downloadUpdate().catch(handleUpdateError)
+  })
+
+  // Portal banner — download: start the update download (manual-check path)
+  ipcMain.on('update:download', () => {
+    if (!autoUpdater) return
+    resetStallTimer()
+    autoUpdater.downloadUpdate().catch(handleUpdateError)
+  })
+
+  // Portal banner — install: quit and apply the downloaded update
+  ipcMain.on('update:install', () => {
+    clearStallTimer()
+    saveState(mainWindow)
+    autoUpdater.quitAndInstall(false, true)
+  })
+
+  // Portal banner — dismiss: renderer manages its own dismiss state; no main action needed
+  ipcMain.on('update:dismiss', () => {})
+
+  // Renderer — trigger a manual update check (e.g. from a settings button)
+  ipcMain.handle('update:check', () => {
+    checkForUpdateManual()
   })
 
   // Window controls — used by custom renderer title bar

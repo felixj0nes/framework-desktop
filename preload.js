@@ -26,9 +26,14 @@ contextBridge.exposeInMainWorld('electron', {
   setSessionReminder: (enabled) => ipcRenderer.send('session:reminder', Boolean(enabled)),
 
   // ── Auto-update control (renderer → main) ───────────────────────────
-  // Channels follow the namespace:action convention.
+  // Trigger a manual check (e.g. from a settings button). Returns nothing —
+  // results arrive via the event listeners below.
+  checkForUpdates: () => ipcRenderer.invoke('update:check'),
+  // Start downloading an available update (portal banner "Update now" button)
   downloadUpdate: () => ipcRenderer.send('update:download'),
+  // Quit and apply a downloaded update (portal banner "Restart" button)
   installUpdate:  () => ipcRenderer.send('update:install'),
+  // Dismiss the update banner — main process has no action to take
   dismissUpdate:  () => ipcRenderer.send('update:dismiss'),
 
   // ── Auto-update events (main → renderer) ────────────────────────────
