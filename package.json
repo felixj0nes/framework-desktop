@@ -1,6 +1,6 @@
 {
   "name": "framework",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "The system behind the trade.",
   "author": "Framework",
   "main": "main.js",
